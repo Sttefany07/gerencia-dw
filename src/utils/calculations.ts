@@ -219,10 +219,10 @@ export function buildServicesSummary(rows: ComputedRow[]): SummaryRow[] {
 
 export function buildConsultantSummary(rows: ComputedRow[]): ConsultantSummaryRow[] {
   type Draft = ConsultantSummaryRow & {
-    paisSet: Set<string>;
-    clienteSet: Set<string>;
-    proyectoSet: Set<string>;
-    roleSet: Set<string>;
+    paisCounts: Map<string, number>;
+    clienteCounts: Map<string, number>;
+    proyectoCounts: Map<string, number>;
+    roleCounts: Map<string, number>;
   };
 
   const groups = new Map<string, Draft>();
@@ -248,16 +248,16 @@ export function buildConsultantSummary(rows: ComputedRow[]): ConsultantSummaryRo
       costoEjecutadoOperaciones: 0,
       costoRealOperaciones: 0,
       resultadoOperativo: null,
-      paisSet: new Set<string>(),
-      clienteSet: new Set<string>(),
-      proyectoSet: new Set<string>(),
-      roleSet: new Set<string>()
+      paisCounts: new Map<string, number>(),
+      clienteCounts: new Map<string, number>(),
+      proyectoCounts: new Map<string, number>(),
+      roleCounts: new Map<string, number>()
     };
 
-    current.paisSet.add(row.pais);
-    current.clienteSet.add(row.cliente);
-    current.proyectoSet.add(row.proyecto);
-    current.roleSet.add(roleForOperations(row));
+    incrementCounter(current.paisCounts, row.pais);
+    incrementCounter(current.clienteCounts, row.cliente);
+    incrementCounter(current.proyectoCounts, row.proyecto);
+    incrementCounter(current.roleCounts, roleForOperations(row));
     current.monedaOperaciones = mergeCurrencyLabel(current.monedaOperaciones, row.monedaOperaciones);
     current.monedaComercial = mergeCurrencyLabel(current.monedaComercial, row.monedaComercial);
     current.horasEstimadas += row.horasEstimadas;
@@ -276,10 +276,10 @@ export function buildConsultantSummary(rows: ComputedRow[]): ConsultantSummaryRo
   return Array.from(groups.values())
     .map((row) => ({
       ...row,
-      paises: joinSet(row.paisSet),
-      clientes: joinSet(row.clienteSet),
-      proyectos: joinSet(row.proyectoSet),
-      roles: joinSet(row.roleSet),
+      paises: mostFrequent(row.paisCounts),
+      clientes: mostFrequent(row.clienteCounts),
+      proyectos: mostFrequent(row.proyectoCounts),
+      roles: mostFrequent(row.roleCounts),
       monedaOperaciones: row.monedaOperaciones || "USD",
       monedaComercial: row.monedaComercial || "Sin tarifa",
       horasEstimadas: roundNumber(row.horasEstimadas, 2),
@@ -402,6 +402,17 @@ function unique(values: string[]) {
 
 function joinSet(values: Set<string>) {
   return Array.from(values).filter(Boolean).sort((a, b) => a.localeCompare(b, "es")).join("; ");
+}
+
+function incrementCounter(counter: Map<string, number>, value: string) {
+  const cleanValue = value || "No definido";
+  counter.set(cleanValue, (counter.get(cleanValue) ?? 0) + 1);
+}
+
+function mostFrequent(counter: Map<string, number>) {
+  return Array.from(counter.entries())
+    .filter(([value]) => Boolean(value))
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "es"))[0]?.[0] ?? "No definido";
 }
 
 function mergeCurrencyLabel(existing: string | undefined, next: string | null | undefined) {

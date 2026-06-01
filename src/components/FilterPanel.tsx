@@ -34,7 +34,6 @@ export function FilterPanel({
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="text-sm font-bold text-slate-900 sm:text-base">Filtros encadenados</h3>
-          <p className="text-xs leading-5 text-slate-500 sm:text-sm">País → Cliente → Proyecto → Hito facturable → Rango de fechas</p>
         </div>
         <button
           onClick={() => onChange(emptyFilters)}
@@ -45,12 +44,12 @@ export function FilterPanel({
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
+        <Field label="Fecha inicio" type="date" value={filters.fechaInicio} onChange={(value) => update("fechaInicio", value)} />
+        <Field label="Fecha fin" type="date" value={filters.fechaFin} onChange={(value) => update("fechaFin", value)} />
         <Select label="País" value={filters.pais} options={options.paises} onChange={(value) => update("pais", value)} />
         <Select label="Cliente" value={filters.cliente} options={options.clientes} onChange={(value) => update("cliente", value)} />
         <Select label="Proyecto" value={filters.proyecto} options={options.proyectos} onChange={(value) => update("proyecto", value)} />
         <Select label="Hito facturable" value={filters.hitoFacturable} options={options.hitos} onChange={(value) => update("hitoFacturable", value)} />
-        <Field label="Fecha inicio" type="date" value={filters.fechaInicio} onChange={(value) => update("fechaInicio", value)} />
-        <Field label="Fecha fin" type="date" value={filters.fechaFin} onChange={(value) => update("fechaFin", value)} />
       </div>
     </section>
   );

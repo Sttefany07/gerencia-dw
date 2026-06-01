@@ -42,17 +42,16 @@ export function ServicesManagement({ records, filters, onFiltersChange, operatio
 
   const consultantColumns: Column<ConsultantSummaryRow>[] = [
     { id: "persona", header: "Consultor / Persona", value: (row) => row.persona, width: "220px" },
-    { id: "paises", header: "Países", value: (row) => row.paises, width: "160px" },
-    { id: "clientes", header: "Clientes", value: (row) => row.clientes, width: "220px" },
-    { id: "proyectos", header: "Proyectos", value: (row) => row.proyectos, width: "260px" },
-    { id: "roles", header: "Roles", value: (row) => row.roles, width: "180px" },
+    { id: "paises", header: "País principal", value: (row) => row.paises, width: "160px" },
+    { id: "clientes", header: "Cliente principal", value: (row) => row.clientes, width: "220px" },
+    { id: "proyectos", header: "Proyecto principal", value: (row) => row.proyectos, width: "260px" },
+    { id: "roles", header: "Rol principal", value: (row) => row.roles, width: "180px" },
     { id: "horasEstimadas", header: "Horas estimadas", value: (row) => row.horasEstimadas, numeric: true, total: true },
     { id: "horasRegistradas", header: "Horas registradas", value: (row) => row.horasRegistradas, numeric: true, total: true },
     { id: "horasFacturables", header: "Horas facturables", value: (row) => row.horasFacturables, numeric: true, total: true },
     { id: "costoEstimadoOperaciones", header: "Costo estimado operaciones", value: (row) => row.costoEstimadoOperaciones, total: true, totalRender: (rows) => formatMoney(sum(rows, "costoEstimadoOperaciones"), resolveCurrency(rows.map((row) => row.monedaOperaciones))), render: (row) => formatMoney(row.costoEstimadoOperaciones, row.monedaOperaciones) },
     { id: "costoEjecutadoOperaciones", header: "Costo ejecutado operaciones", value: (row) => row.costoEjecutadoOperaciones, total: true, totalRender: (rows) => formatMoney(sum(rows, "costoEjecutadoOperaciones"), resolveCurrency(rows.map((row) => row.monedaOperaciones))), render: (row) => formatMoney(row.costoEjecutadoOperaciones, row.monedaOperaciones) },
-    { id: "costoRealOperaciones", header: "Costo real operaciones", value: (row) => row.costoRealOperaciones, total: true, totalRender: (rows) => formatMoney(sum(rows, "costoRealOperaciones"), resolveCurrency(rows.map((row) => row.monedaOperaciones))), render: (row) => formatMoney(row.costoRealOperaciones, row.monedaOperaciones) },
-    { id: "resultadoOperativo", header: "Resultado operativo", value: (row) => row.resultadoOperativo ?? 0, total: true, totalRender: (rows) => resultBadge(sum(rows, "resultadoOperativo"), resolveCurrency(rows.map((row) => row.monedaComercial))), render: (row) => row.monedaComercial === "Sin tarifa" ? <Badge tone="orange">Sin tarifa comercial</Badge> : resultBadge(row.resultadoOperativo ?? 0, row.monedaComercial) }
+    { id: "costoRealOperaciones", header: "Costo real operaciones", value: (row) => row.costoRealOperaciones, total: true, totalRender: (rows) => formatMoney(sum(rows, "costoRealOperaciones"), resolveCurrency(rows.map((row) => row.monedaOperaciones))), render: (row) => formatMoney(row.costoRealOperaciones, row.monedaOperaciones) }
   ];
 
   const detailColumns: Column<ComputedRow>[] = [

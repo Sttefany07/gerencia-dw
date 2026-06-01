@@ -44,10 +44,10 @@ export function GeneralManagement({ records, filters, onFiltersChange, operation
 
   const consultantColumns: Column<ConsultantSummaryRow>[] = [
     { id: "persona", header: "Consultor / Persona", value: (row) => row.persona, width: "220px" },
-    { id: "paises", header: "Países", value: (row) => row.paises, width: "160px" },
-    { id: "clientes", header: "Clientes", value: (row) => row.clientes, width: "220px" },
-    { id: "proyectos", header: "Proyectos", value: (row) => row.proyectos, width: "260px" },
-    { id: "roles", header: "Roles", value: (row) => row.roles, width: "180px" },
+    { id: "paises", header: "País principal", value: (row) => row.paises, width: "160px" },
+    { id: "clientes", header: "Cliente principal", value: (row) => row.clientes, width: "220px" },
+    { id: "proyectos", header: "Proyecto principal", value: (row) => row.proyectos, width: "260px" },
+    { id: "roles", header: "Rol principal", value: (row) => row.roles, width: "180px" },
     { id: "horasEstimadas", header: "Horas estimadas", value: (row) => row.horasEstimadas, numeric: true, total: true },
     { id: "horasRegistradas", header: "Horas registradas", value: (row) => row.horasRegistradas, numeric: true, total: true },
     { id: "horasFacturables", header: "Horas facturables", value: (row) => row.horasFacturables, numeric: true, total: true },
