@@ -144,4 +144,3 @@ function resolveCurrency(values: Array<string | null | undefined>) {
   if (uniques.length === 1) return uniques[0];
   return uniques.join("/");
 }
-
