@@ -27,27 +27,27 @@ const columnAliases: Record<keyof Omit<NormalizedRecord, "id" | "raw">, string[]
   rolAsignado: ["rol asignado", "rol", "rol drop down", "perfil", "rol ejecutor", "role", "assigned role", "cargo"],
   persona: ["assignee", "persona", "consultor", "colaborador", "recurso", "nombre", "empleado", "responsable"],
   horasEstimadas: [
+    // Primero se toma la hora propia de la actividad, NO la acumulada/Roll Up.
     "time estimate",
     "horas estimadas",
-    "time estimate rolled up",
-    "horas estimadas acumuladas",
     "hh estimadas",
     "horas planificadas",
     "horas presupuesto",
     "estimated hours",
-    "time estimate"
+    "time estimate rolled up",
+    "horas estimadas acumuladas"
   ],
   horasRegistradas: [
+    // Primero se toma la hora propia de la actividad, NO la acumulada/Roll Up.
     "time logged",
     "horas registradas",
-    "time logged rolled up",
-    "horas registradas acumuladas",
     "hh registradas",
     "horas ejecutadas",
     "hh ejecutadas",
     "horas reales",
     "registered hours",
-    "time logged"
+    "time logged rolled up",
+    "horas registradas acumuladas"
   ],
   horasFacturables: ["horas facturables", "horas facturables number", "hh facturables", "horas a facturar", "billable hours"],
   fechaInicio: ["fecha inicio", "inicio", "fecha inicial", "start date", "fecha de inicio"],
@@ -58,6 +58,7 @@ const requiredColumns: Array<keyof Omit<NormalizedRecord, "id" | "raw">> = [
   "pais",
   "cliente",
   "proyecto",
+  "persona",
   "rolAsignado",
   "horasEstimadas",
   "horasRegistradas",
@@ -65,10 +66,20 @@ const requiredColumns: Array<keyof Omit<NormalizedRecord, "id" | "raw">> = [
   "fechaFin"
 ];
 
+type RowSelectionStats = {
+  originalCount: number;
+  assignedCount: number;
+  selectedCount: number;
+  excludedWithoutAssignee: number;
+  excludedParentControl: number;
+  excludedProjectRows: number;
+};
+
 export function normalizeExcelRows(rows: Record<string, unknown>[]) {
   const warnings: ValidationWarning[] = [];
   const headerMap = buildHeaderMap(rows[0] ?? {});
-  const rowsToNormalize = getAtomicAssignedRows(rows, headerMap);
+  const selection = getAssignedActivityRows(rows, headerMap);
+  const rowsToNormalize = selection.rows;
 
   if (!headerMap.fechaInicio && headerMap.fechaFin) {
     warnings.push({
@@ -90,6 +101,18 @@ export function normalizeExcelRows(rows: Record<string, unknown>[]) {
     }
   }
 
+  const excludedRows = selection.stats.excludedWithoutAssignee + selection.stats.excludedParentControl + selection.stats.excludedProjectRows;
+  if (excludedRows > 0) {
+    warnings.push({
+      id: createId("warn"),
+      severity: "info",
+      type: "default",
+      message:
+        "Solo se contabilizaron actividades finales asignadas a una persona. Las tareas padre/control y las filas sin responsable fueron excluidas de las sumas.",
+      count: excludedRows
+    });
+  }
+
   let nonNumericCount = 0;
   let replacedHitoCount = 0;
   let replacedTextCount = 0;
@@ -108,14 +131,16 @@ export function normalizeExcelRows(rows: Record<string, unknown>[]) {
     const rolEstimado = normalizeImportantText(getValue(row, headerMap.rolEstimado));
     const rolAsignado = normalizeImportantText(getValue(row, headerMap.rolAsignado));
     const personaBase = normalizeImportantText(getValue(row, headerMap.persona));
-    const personas = splitPeople(personaBase);
+    const personas = splitPeople(personaBase).filter((persona) => hasMeaningfulAssignee(persona));
+
+    if (!personas.length) return [];
 
     if (personas.length > 1) {
       multiPersonActivityCount += 1;
       addedPersonRowsCount += personas.length - 1;
     }
 
-    [pais, cliente, proyecto, rolEstimado, rolAsignado, personaBase].forEach((value) => {
+    [pais, cliente, proyecto, rolEstimado, rolAsignado].forEach((value) => {
       if (value === "No definido") replacedTextCount += 1;
     });
 
@@ -191,7 +216,6 @@ export function normalizeExcelRows(rows: Record<string, unknown>[]) {
   }
 
   // Las fechas inválidas se dejan vacías, pero no se muestran como alerta.
-  // En los Excel de ClickUp suelen existir filas padre o campos de rango que no deben contaminar la carga ejecutiva.
   void invalidDateCount;
 
   return { records: normalized, warnings };
@@ -227,11 +251,20 @@ function buildHeaderMap(sample: Record<string, unknown>) {
   return map;
 }
 
-function getAtomicAssignedRows(
+function getAssignedActivityRows(
   rows: Record<string, unknown>[],
   headerMap: Partial<Record<keyof Omit<NormalizedRecord, "id" | "raw">, string>>
-) {
-  if (!rows.length) return rows;
+): { rows: Record<string, unknown>[]; stats: RowSelectionStats } {
+  const stats: RowSelectionStats = {
+    originalCount: rows.length,
+    assignedCount: 0,
+    selectedCount: 0,
+    excludedWithoutAssignee: 0,
+    excludedParentControl: 0,
+    excludedProjectRows: 0
+  };
+
+  if (!rows.length) return { rows: [], stats };
 
   const sample = rows[0] ?? {};
   const taskIdKey = findColumn(sample, ["task id", "id tarea", "taskid"]);
@@ -239,27 +272,49 @@ function getAtomicAssignedRows(
   const taskTypeKey = findColumn(sample, ["task type", "tipo tarea", "tipo de tarea"]);
   const assigneeKey = headerMap.persona;
 
-  if (!taskIdKey || !parentIdKey || !assigneeKey) return rows;
+  if (!assigneeKey) {
+    stats.excludedWithoutAssignee = rows.length;
+    return { rows: [], stats };
+  }
 
   const parentIds = new Set(
-    rows
-      .map((row) => cleanText(row[parentIdKey]))
-      .filter((value) => value && !isMetadataValue(value))
+    parentIdKey
+      ? rows
+          .map((row) => cleanText(row[parentIdKey]))
+          .filter((value) => value && !isMetadataValue(value))
+      : []
   );
 
-  const atomicRows = rows.filter((row) => {
-    const taskId = cleanText(row[taskIdKey]);
-    const taskType = cleanText(taskTypeKey ? row[taskTypeKey] : "");
+  const selectedRows = rows.filter((row) => {
     const assignee = cleanText(row[assigneeKey]);
+    const hasAssignee = hasMeaningfulAssignee(assignee);
 
-    const isParentTask = taskId ? parentIds.has(taskId) : false;
-    const isProjectRow = normalizeHeader(taskType) === "proyecto" || normalizeHeader(taskType) === "project";
-    const hasAssignee = Boolean(assignee) && !isMetadataValue(assignee);
+    if (!hasAssignee) {
+      stats.excludedWithoutAssignee += 1;
+      return false;
+    }
 
-    return hasAssignee && !isParentTask && !isProjectRow;
+    stats.assignedCount += 1;
+
+    const taskType = normalizeHeader(taskTypeKey ? cleanText(row[taskTypeKey]) : "");
+    const isProjectRow = taskType === "proyecto" || taskType === "project";
+    if (isProjectRow) {
+      stats.excludedProjectRows += 1;
+      return false;
+    }
+
+    const taskId = taskIdKey ? cleanText(row[taskIdKey]) : "";
+    const isParentControlTask = Boolean(taskId && parentIds.has(taskId));
+    if (isParentControlTask) {
+      stats.excludedParentControl += 1;
+      return false;
+    }
+
+    return true;
   });
 
-  return atomicRows.length ? atomicRows : rows;
+  stats.selectedCount = selectedRows.length;
+  return { rows: selectedRows, stats };
 }
 
 function findColumn(sample: Record<string, unknown>, aliases: string[]) {
@@ -267,6 +322,14 @@ function findColumn(sample: Record<string, unknown>, aliases: string[]) {
   const normalizedAliases = aliases.map(normalizeHeader);
 
   return headers.find((header) => normalizedAliases.includes(header.normalized))?.original;
+}
+
+function hasMeaningfulAssignee(value: unknown) {
+  const cleaned = cleanText(value);
+  if (!cleaned) return false;
+  const normalized = normalizeHeader(cleaned);
+  if (!normalized || normalized === "no definido") return false;
+  return !isMetadataValue(cleaned);
 }
 
 function isMetadataValue(value: string) {
@@ -278,7 +341,9 @@ function isMetadataValue(value: string) {
     normalized === "persona" ||
     normalized === "task id" ||
     normalized === "parent id" ||
-    normalized === "task type"
+    normalized === "task type" ||
+    normalized === "rol" ||
+    normalized === "rol estimado"
   );
 }
 
@@ -327,16 +392,16 @@ function normalizeImportantText(value: unknown) {
 }
 
 function splitPeople(value: string) {
-  if (!value || value === "No definido") return ["No definido"];
+  if (!value || value === "No definido") return [];
 
   const parts = value
     .replace(/\s+(?:y|and)\s+/gi, ";")
     .split(/\s*(?:;|\||\n|\r|,)\s*/g)
     .map((item) => cleanText(item))
-    .filter(Boolean);
+    .filter(Boolean)
+    .filter(hasMeaningfulAssignee);
 
-  const uniquePeople = Array.from(new Set(parts));
-  return uniquePeople.length ? uniquePeople : ["No definido"];
+  return Array.from(new Set(parts));
 }
 
 function parseNumber(value: unknown): { value: number; invalid: boolean } {
