@@ -159,8 +159,11 @@ export default function App() {
         <header className="rounded-2xl bg-gradient-to-r from-slate-950 to-blue-900 p-4 text-white shadow-soft sm:rounded-3xl sm:p-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-200 sm:text-sm sm:tracking-[0.2em]">Sistema tabular ejecutivo</p>
-              <h1 className="mt-2 text-xl font-black tracking-tight sm:text-2xl lg:text-3xl">Gestión de proyectos, horas, tarifas, costos y facturación</h1>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-200 sm:text-sm sm:tracking-[0.2em]">DW CONSULWARE</p>
+              <h1 className="mt-2 text-xl font-black tracking-tight sm:text-2xl lg:text-3xl">Control de proyectos </h1>
+              <p className="mt-1 text-sm text-gray-400">
+               Horas, tarifas, costos y facturación
+               </p>
             </div>
             <span className="w-fit rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-blue-100 ring-1 ring-white/20">
               {cloudStatus}

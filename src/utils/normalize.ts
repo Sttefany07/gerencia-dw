@@ -27,27 +27,23 @@ const columnAliases: Record<keyof Omit<NormalizedRecord, "id" | "raw">, string[]
   rolAsignado: ["rol asignado", "rol", "rol drop down", "perfil", "rol ejecutor", "role", "assigned role", "cargo"],
   persona: ["assignee", "persona", "consultor", "colaborador", "recurso", "nombre", "empleado", "responsable"],
   horasEstimadas: [
-    // Primero se toma la hora propia de la actividad, NO la acumulada/Roll Up.
+    // SOLO horas propias de la tarea asignada. No usar Roll Up.
     "time estimate",
     "horas estimadas",
     "hh estimadas",
     "horas planificadas",
     "horas presupuesto",
-    "estimated hours",
-    "time estimate rolled up",
-    "horas estimadas acumuladas"
+    "estimated hours"
   ],
   horasRegistradas: [
-    // Primero se toma la hora propia de la actividad, NO la acumulada/Roll Up.
+    // SOLO horas propias de la tarea asignada. No usar Roll Up.
     "time logged",
     "horas registradas",
     "hh registradas",
     "horas ejecutadas",
     "hh ejecutadas",
     "horas reales",
-    "registered hours",
-    "time logged rolled up",
-    "horas registradas acumuladas"
+    "registered hours"
   ],
   horasFacturables: ["horas facturables", "horas facturables number", "hh facturables", "horas a facturar", "billable hours"],
   fechaInicio: ["fecha inicio", "inicio", "fecha inicial", "start date", "fecha de inicio"],
@@ -78,6 +74,7 @@ type RowSelectionStats = {
 export function normalizeExcelRows(rows: Record<string, unknown>[]) {
   const warnings: ValidationWarning[] = [];
   const headerMap = buildHeaderMap(rows[0] ?? {});
+  forceOwnHourColumns(rows[0] ?? {}, headerMap);
   const selection = getAssignedActivityRows(rows, headerMap);
   const rowsToNormalize = selection.rows;
 
@@ -108,7 +105,7 @@ export function normalizeExcelRows(rows: Record<string, unknown>[]) {
       severity: "info",
       type: "default",
       message:
-        "Solo se contabilizaron actividades finales asignadas a una persona. Las tareas padre/control y las filas sin responsable fueron excluidas de las sumas.",
+        "Solo se contabilizan tareas/actividades con persona asignada. Las tareas padre/control, filas sin responsable y horas Roll Up no entran a las sumas.",
       count: excludedRows
     });
   }
@@ -219,6 +216,17 @@ export function normalizeExcelRows(rows: Record<string, unknown>[]) {
   void invalidDateCount;
 
   return { records: normalized, warnings };
+}
+
+function forceOwnHourColumns(
+  sample: Record<string, unknown>,
+  headerMap: Partial<Record<keyof Omit<NormalizedRecord, "id" | "raw">, string>>
+) {
+  const ownEstimate = findColumn(sample, ["time estimate", "horas estimadas", "hh estimadas", "estimated hours"]);
+  const ownLogged = findColumn(sample, ["time logged", "horas registradas", "hh registradas", "registered hours"]);
+
+  if (ownEstimate) headerMap.horasEstimadas = ownEstimate;
+  if (ownLogged) headerMap.horasRegistradas = ownLogged;
 }
 
 function buildHeaderMap(sample: Record<string, unknown>) {
