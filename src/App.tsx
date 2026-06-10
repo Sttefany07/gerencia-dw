@@ -12,7 +12,7 @@ import { createId } from "./utils/ids";
 import { loadFromStorage, saveToStorage, STORAGE_KEYS } from "./utils/storage";
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<TabKey>("upload");
+  const [activeTab, setActiveTab] = useState<TabKey>("general");
   const [uploads, setUploads] = useState<UploadItem[]>(() => loadFromStorage(STORAGE_KEYS.uploads, []));
   const [activeUploadId, setActiveUploadId] = useState<string>(() => loadFromStorage(STORAGE_KEYS.activeUploadId, ""));
   const [operationRates, setOperationRates] = useState<OperationRate[]>(() =>
