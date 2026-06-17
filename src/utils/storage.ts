@@ -1,9 +1,12 @@
-const isBrowser = typeof window !== "undefined";
+export const STORAGE_KEYS = {
+  uploads: "dw_uploads_v16",
+  activeUploadId: "dw_active_upload_v16",
+  tariffs: "dw_tariffs_v16"
+};
 
 export function loadFromStorage<T>(key: string, fallback: T): T {
-  if (!isBrowser) return fallback;
   try {
-    const raw = localStorage.getItem(key);
+    const raw = window.localStorage.getItem(key);
     return raw ? (JSON.parse(raw) as T) : fallback;
   } catch {
     return fallback;
@@ -11,13 +14,9 @@ export function loadFromStorage<T>(key: string, fallback: T): T {
 }
 
 export function saveToStorage<T>(key: string, value: T) {
-  if (!isBrowser) return;
-  localStorage.setItem(key, JSON.stringify(value));
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // localStorage puede fallar en modo privado; la app sigue funcionando en memoria.
+  }
 }
-
-export const STORAGE_KEYS = {
-  uploads: "gt_uploads",
-  activeUploadId: "gt_active_upload_id",
-  operationRates: "gt_operation_rates",
-  commercialRates: "gt_commercial_rates"
-};

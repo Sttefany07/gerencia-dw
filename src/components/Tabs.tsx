@@ -1,40 +1,32 @@
-import { BarChart3, Building2, FileSpreadsheet, Table2 } from "lucide-react";
-import { TabKey } from "../types";
+import { BarChart3, FileSpreadsheet, Tags, Users } from "lucide-react";
+import { ViewKey } from "../types";
 
-type Tab = {
-  key: TabKey;
-  label: string;
-  icon: typeof FileSpreadsheet;
-};
-
-const tabs: Tab[] = [
-  { key: "upload", label: "Carga e historial", icon: FileSpreadsheet },
-  { key: "rates", label: "Tarifas por rol", icon: Table2 },
-  { key: "general", label: "Gerencia General", icon: BarChart3 },
-  { key: "services", label: "Gerencia de Servicios", icon: Building2 }
+const tabs: Array<{ key: ViewKey; label: string; icon: typeof Users }> = [
+  { key: "upload", label: "CARGA DE EXCEL", icon: FileSpreadsheet },
+  { key: "rates", label: "TARIFAS", icon: Tags },
+  { key: "services", label: "GERENCIA DE SERVICIOS", icon: Users },
+  { key: "general", label: "GERENCIA GENERAL", icon: BarChart3 }
 ];
 
-export function Tabs({ active, onChange }: { active: TabKey; onChange: (tab: TabKey) => void }) {
+export function Tabs({ active, onChange }: { active: ViewKey; onChange: (tab: ViewKey) => void }) {
   return (
-    <nav className="w-full overflow-x-auto rounded-2xl bg-white p-2 shadow-soft ring-1 ring-slate-200">
-      <div className="flex min-w-max gap-2">
-        {tabs.map((tab) => {
-          const Icon = tab.icon;
-          const selected = active === tab.key;
-          return (
-            <button
-              key={tab.key}
-              onClick={() => onChange(tab.key)}
-              className={`flex items-center gap-2 whitespace-nowrap rounded-xl px-3 py-2 text-xs font-semibold transition sm:px-4 sm:text-sm ${
-                selected ? "bg-blue-700 text-white shadow-sm" : "text-slate-700 hover:bg-slate-100"
-              }`}
-            >
-              <Icon size={17} />
-              {tab.label}
-            </button>
-          );
-        })}
-      </div>
+    <nav className="flex w-full gap-2 overflow-x-auto border-b border-slate-200 bg-transparent">
+      {tabs.map((tab) => {
+        const Icon = tab.icon;
+        const selected = active === tab.key;
+        return (
+          <button
+            key={tab.key}
+            onClick={() => onChange(tab.key)}
+            className={`inline-flex min-w-[190px] items-center justify-center gap-3 rounded-t-xl border px-5 py-4 text-sm font-black transition ${
+              selected ? "border-blue-200 border-b-white bg-white text-blue-700 shadow-soft" : "border-slate-200 bg-slate-100 text-slate-600 hover:bg-white"
+            }`}
+          >
+            <Icon size={20} />
+            {tab.label}
+          </button>
+        );
+      })}
     </nav>
   );
 }

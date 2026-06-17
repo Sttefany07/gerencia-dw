@@ -1,6 +1,3 @@
--- Ejecutar en Supabase SQL Editor.
--- Esta tabla guarda la carga activa, historial y tarifas para que se vea desde cualquier navegador o PC.
-
 create table if not exists public.app_state (
   state_key text primary key,
   data jsonb not null,

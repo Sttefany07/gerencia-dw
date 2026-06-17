@@ -1,146 +1,91 @@
-import { Download } from "lucide-react";
-import { CommercialRate, ComputedRow, ConsultantSummaryRow, FilterState, NormalizedRecord, OperationRate, SummaryRow } from "../types";
-import {
-  buildComputedRows,
-  buildConsultantSummary,
-  buildGeneralSummary,
-  filterRecords,
-  totals
-} from "../utils/calculations";
+import { BarChart3, DollarSign, Landmark, Percent, TrendingUp } from "lucide-react";
+import { ComputedRecord, FilterState, GeneralConsultantSummary, GeneralProjectSummary, NormalizedRecord, TariffRate } from "../types";
+import { buildComputedRows, buildGeneralConsultantSummary, buildGeneralProjectSummary, filterRecords, generalTotals } from "../utils/calculations";
 import { createExportSheet, exportSheetsToExcel } from "../utils/excel";
-import { formatMoney } from "../utils/format";
-import { Badge } from "./Badge";
+import { formatHours, formatMoney, formatPercent, formatPp } from "../utils/format";
 import { Column, DataTable } from "./DataTable";
 import { FilterPanel } from "./FilterPanel";
-import { SummaryCards } from "./SummaryCards";
+import { MetricCard } from "./MetricCard";
 
-type Props = {
-  records: NormalizedRecord[];
-  filters: FilterState;
-  onFiltersChange: (filters: FilterState) => void;
-  operationRates: OperationRate[];
-  commercialRates: CommercialRate[];
-};
-
-export function GeneralManagement({ records, filters, onFiltersChange, operationRates, commercialRates }: Props) {
+export function GeneralManagement({ records, filters, onFiltersChange, tariffs }: { records: NormalizedRecord[]; filters: FilterState; onFiltersChange: (filters: FilterState) => void; tariffs: TariffRate[] }) {
   const filtered = filterRecords(records, filters);
-  const computed = buildComputedRows(filtered, operationRates, commercialRates);
-  const summary = buildGeneralSummary(computed);
-  const consultantSummary = buildConsultantSummary(computed);
-  const totalValues = totals(computed);
+  const computed = buildComputedRows(filtered, tariffs);
+  const summary = buildGeneralProjectSummary(computed);
+  const consultants = buildGeneralConsultantSummary(computed);
+  const total = generalTotals(computed);
 
-  const summaryColumns: Column<SummaryRow>[] = [
-    { id: "pais", header: "País", value: (row) => row.pais, width: "150px" },
-    { id: "proyecto", header: "Proyecto", value: (row) => row.proyecto, width: "220px" },
-    { id: "horasEstimadas", header: "Horas estimadas", value: (row) => row.horasEstimadas, numeric: true, total: true },
-    { id: "horasRegistradas", header: "Horas registradas", value: (row) => row.horasRegistradas, numeric: true, total: true },
-    { id: "horasFacturables", header: "Horas facturables", value: (row) => row.horasFacturables, numeric: true, total: true },
-    { id: "facturacionEstimadaComercial", header: "Facturación estimada comercial", value: (row) => row.facturacionEstimadaComercial ?? 0, total: true, totalRender: (rows) => formatMoney(sum(rows, "facturacionEstimadaComercial"), resolveCurrency(rows.map((row) => row.monedaComercial))), render: (row) => moneyOrNoTariff(row.facturacionEstimadaComercial, row.monedaComercial) },
-    { id: "facturacionRegistradaComercial", header: "Facturación registrada comercial", value: (row) => row.facturacionRegistradaComercial ?? 0, total: true, totalRender: (rows) => formatMoney(sum(rows, "facturacionRegistradaComercial"), resolveCurrency(rows.map((row) => row.monedaComercial))), render: (row) => moneyOrNoTariff(row.facturacionRegistradaComercial, row.monedaComercial) },
-    { id: "facturacionRealComercial", header: "Facturación real comercial", value: (row) => row.facturacionRealComercial ?? 0, total: true, totalRender: (rows) => formatMoney(sum(rows, "facturacionRealComercial"), resolveCurrency(rows.map((row) => row.monedaComercial))), render: (row) => moneyOrNoTariff(row.facturacionRealComercial, row.monedaComercial) },
-    { id: "costoRealOperaciones", header: "Costo real operaciones", value: (row) => row.costoRealOperaciones, total: true, totalRender: (rows) => formatMoney(sum(rows, "costoRealOperaciones"), resolveCurrency(rows.map((row) => row.monedaOperaciones))), render: (row) => formatMoney(row.costoRealOperaciones, row.monedaOperaciones) },
-    { id: "resultadoOperativo", header: "Resultado operativo", value: (row) => row.resultadoOperativo ?? 0, total: true, totalRender: (rows) => resultBadge(sum(rows, "resultadoOperativo"), resolveCurrency(rows.map((row) => row.monedaComercial))), render: (row) => resultBadge(row.resultadoOperativo ?? 0, row.monedaComercial) }
+  const summaryColumns: Column<GeneralProjectSummary>[] = [
+    { id: "pais", header: "País", value: (row) => row.pais },
+    { id: "cliente", header: "Cliente", value: (row) => row.cliente },
+    { id: "proyecto", header: "Proyecto", value: (row) => row.proyecto },
+    { id: "ingresoEstimado", header: "Ingreso estimado", value: (row) => row.ingresoEstimado, render: (row) => formatMoney(row.ingresoEstimado, row.moneda), total: true, totalRender: (rows) => formatMoney(sum(rows, "ingresoEstimado"), total.moneda) },
+    { id: "ingresoReal", header: "Ingreso real", value: (row) => row.ingresoReal, render: (row) => formatMoney(row.ingresoReal, row.moneda), total: true, totalRender: (rows) => formatMoney(sum(rows, "ingresoReal"), total.moneda) },
+    { id: "costoEstimado70", header: "Costo estimado (70%)", value: (row) => row.costoEstimado70, render: (row) => formatMoney(row.costoEstimado70, row.moneda), total: true, totalRender: (rows) => formatMoney(sum(rows, "costoEstimado70"), total.moneda) },
+    { id: "costoEjecutado70", header: "Costo ejecutado (70%)", value: (row) => row.costoEjecutado70, render: (row) => formatMoney(row.costoEjecutado70, row.moneda), total: true, totalRender: (rows) => formatMoney(sum(rows, "costoEjecutado70"), total.moneda) },
+    { id: "proyeccionCosto", header: "Proyección de costo", value: (row) => row.proyeccionCosto, render: (row) => formatMoney(row.proyeccionCosto, row.moneda), total: true, totalRender: (rows) => formatMoney(sum(rows, "proyeccionCosto"), total.moneda) },
+    { id: "rentabilidadEstimada", header: "Rentabilidad estimada", value: (row) => row.rentabilidadEstimada, render: (row) => formatPercent(row.rentabilidadEstimada) },
+    { id: "rentabilidadProyectada", header: "Rentabilidad proyectada", value: (row) => row.rentabilidadProyectada, render: (row) => formatPercent(row.rentabilidadProyectada) },
+    { id: "desviacionPp", header: "Desviación (pp)", value: (row) => row.desviacionPp, render: (row) => formatPp(row.desviacionPp) }
   ];
 
-  const consultantColumns: Column<ConsultantSummaryRow>[] = [
-    { id: "persona", header: "Consultor / Persona", value: (row) => row.persona, width: "220px" },
-    { id: "paises", header: "País principal", value: (row) => row.paises, width: "160px" },
-    { id: "clientes", header: "Cliente principal", value: (row) => row.clientes, width: "220px" },
-    { id: "proyectos", header: "Proyecto principal", value: (row) => row.proyectos, width: "260px" },
-    { id: "roles", header: "Rol principal", value: (row) => row.roles, width: "180px" },
-    { id: "horasEstimadas", header: "Horas estimadas", value: (row) => row.horasEstimadas, numeric: true, total: true },
-    { id: "horasRegistradas", header: "Horas registradas", value: (row) => row.horasRegistradas, numeric: true, total: true },
-    { id: "horasFacturables", header: "Horas facturables", value: (row) => row.horasFacturables, numeric: true, total: true },
-    { id: "facturacionEstimadaComercial", header: "Facturación estimada comercial", value: (row) => row.facturacionEstimadaComercial, total: true, totalRender: (rows) => formatMoney(sum(rows, "facturacionEstimadaComercial"), resolveCurrency(rows.map((row) => row.monedaComercial))), render: (row) => moneyOrNoTariff(row.facturacionEstimadaComercial, row.monedaComercial) },
-    { id: "facturacionRegistradaComercial", header: "Facturación registrada comercial", value: (row) => row.facturacionRegistradaComercial, total: true, totalRender: (rows) => formatMoney(sum(rows, "facturacionRegistradaComercial"), resolveCurrency(rows.map((row) => row.monedaComercial))), render: (row) => moneyOrNoTariff(row.facturacionRegistradaComercial, row.monedaComercial) },
-    { id: "facturacionRealComercial", header: "Facturación real comercial", value: (row) => row.facturacionRealComercial, total: true, totalRender: (rows) => formatMoney(sum(rows, "facturacionRealComercial"), resolveCurrency(rows.map((row) => row.monedaComercial))), render: (row) => moneyOrNoTariff(row.facturacionRealComercial, row.monedaComercial) },
-    { id: "costoRealOperaciones", header: "Costo real operaciones", value: (row) => row.costoRealOperaciones, total: true, totalRender: (rows) => formatMoney(sum(rows, "costoRealOperaciones"), resolveCurrency(rows.map((row) => row.monedaOperaciones))), render: (row) => formatMoney(row.costoRealOperaciones, row.monedaOperaciones) },
-    { id: "resultadoOperativo", header: "Resultado operativo", value: (row) => row.resultadoOperativo ?? 0, total: true, totalRender: (rows) => resultBadge(sum(rows, "resultadoOperativo"), resolveCurrency(rows.map((row) => row.monedaComercial))), render: (row) => resultBadge(row.resultadoOperativo ?? 0, row.monedaComercial ?? "USD") }
+  const consultantColumns: Column<GeneralConsultantSummary>[] = [
+    { id: "consultor", header: "Consultor / Persona", value: (row) => row.consultor },
+    { id: "proyecto", header: "Proyecto", value: (row) => row.proyecto },
+    { id: "perfil", header: "Perfil", value: (row) => row.perfil },
+    { id: "horasRegistradas", header: "Horas registradas", value: (row) => row.horasRegistradas, render: (row) => formatHours(row.horasRegistradas), total: true, totalRender: (rows) => formatHours(sum(rows, "horasRegistradas")) },
+    { id: "tarifa", header: "Tarifa", value: (row) => row.tarifa, render: (row) => formatMoney(row.tarifa, row.moneda) },
+    { id: "ingresoGenerado", header: "Ingreso generado", value: (row) => row.ingresoGenerado, render: (row) => formatMoney(row.ingresoGenerado, row.moneda), total: true, totalRender: (rows) => formatMoney(sum(rows, "ingresoGenerado"), total.moneda) },
+    { id: "costoEjecutado70", header: "Costo ejecutado (70%)", value: (row) => row.costoEjecutado70, render: (row) => formatMoney(row.costoEjecutado70, row.moneda), total: true, totalRender: (rows) => formatMoney(sum(rows, "costoEjecutado70"), total.moneda) },
+    { id: "margenGenerado", header: "Margen generado", value: (row) => row.margenGenerado, render: (row) => formatMoney(row.margenGenerado, row.moneda), total: true, totalRender: (rows) => formatMoney(sum(rows, "margenGenerado"), total.moneda) },
+    { id: "participacionMargen", header: "Participación en margen", value: (row) => row.participacionMargen, render: (row) => formatPercent(row.participacionMargen) }
   ];
 
-  const detailColumns: Column<ComputedRow>[] = [
-    { id: "pais", header: "País", value: (row) => row.pais, width: "120px" },
-    { id: "cliente", header: "Cliente", value: (row) => row.cliente, width: "160px" },
-    { id: "proyecto", header: "Proyecto", value: (row) => row.proyecto, width: "220px" },
-    { id: "hitoFacturable", header: "Hito facturable", value: (row) => row.hitoFacturable, width: "160px" },
-    { id: "rolEstimado", header: "Rol estimado", value: (row) => row.rolEstimado, width: "150px" },
-    { id: "rolAsignado", header: "Rol asignado", value: (row) => row.rolAsignado, width: "150px" },
-    { id: "persona", header: "Persona", value: (row) => row.persona, width: "180px" },
-    { id: "horasEstimadas", header: "Horas estimadas", value: (row) => row.horasEstimadas, numeric: true, total: true },
-    { id: "horasRegistradas", header: "Horas registradas", value: (row) => row.horasRegistradas, numeric: true, total: true },
-    { id: "horasFacturables", header: "Horas facturables", value: (row) => row.horasFacturables, numeric: true, total: true },
-    { id: "tarifaOperacionesHora", header: "Tarifa operaciones/hora", value: (row) => row.tarifaOperacionesHora ?? 0, render: (row) => row.tarifaOperacionesHora ? formatMoney(row.tarifaOperacionesHora, row.monedaOperaciones) : <Badge tone="orange">Sin tarifa</Badge> },
-    { id: "tarifaComercialHora", header: "Tarifa comercial/hora", value: (row) => row.tarifaComercialHora ?? 0, render: (row) => row.tarifaComercialHora ? formatMoney(row.tarifaComercialHora, row.monedaComercial) : <Badge tone="orange">Sin tarifa</Badge> },
-    { id: "facturacionEstimadaComercial", header: "Facturación estimada comercial", value: (row) => row.facturacionEstimadaComercial ?? 0, total: true, totalRender: (rows) => formatMoney(sum(rows, "facturacionEstimadaComercial"), resolveCurrency(rows.map((row) => row.monedaComercial))), render: (row) => moneyOrNoTariff(row.facturacionEstimadaComercial, row.monedaComercial) },
-    { id: "facturacionRegistradaComercial", header: "Facturación registrada comercial", value: (row) => row.facturacionRegistradaComercial ?? 0, total: true, totalRender: (rows) => formatMoney(sum(rows, "facturacionRegistradaComercial"), resolveCurrency(rows.map((row) => row.monedaComercial))), render: (row) => moneyOrNoTariff(row.facturacionRegistradaComercial, row.monedaComercial) },
-    { id: "facturacionRealComercial", header: "Facturación real comercial", value: (row) => row.facturacionRealComercial ?? 0, total: true, totalRender: (rows) => formatMoney(sum(rows, "facturacionRealComercial"), resolveCurrency(rows.map((row) => row.monedaComercial))), render: (row) => moneyOrNoTariff(row.facturacionRealComercial, row.monedaComercial) },
-    { id: "costoRealOperaciones", header: "Costo real operaciones", value: (row) => row.costoRealOperaciones, total: true, totalRender: (rows) => formatMoney(sum(rows, "costoRealOperaciones"), resolveCurrency(rows.map((row) => row.monedaOperaciones))), render: (row) => formatMoney(row.costoRealOperaciones, row.monedaOperaciones) },
-    { id: "resultadoOperativo", header: "Resultado operativo", value: (row) => row.resultadoOperativo ?? 0, total: true, totalRender: (rows) => resultBadge(sum(rows, "resultadoOperativo"), resolveCurrency(rows.map((row) => row.monedaComercial))), render: (row) => resultBadge(row.resultadoOperativo ?? 0, row.monedaComercial ?? "USD") }
+  const detailColumns: Column<ComputedRecord>[] = [
+    { id: "taskName", header: "Tarea", value: (row) => row.taskName },
+    { id: "consultor", header: "Consultor", value: (row) => row.consultor },
+    { id: "proyecto", header: "Proyecto", value: (row) => row.proyecto },
+    { id: "perfil", header: "Perfil", value: (row) => row.perfil },
+    { id: "horasRegistradas", header: "Horas registradas", value: (row) => row.horasRegistradas },
+    { id: "tarifa", header: "Tarifa", value: (row) => row.tarifa, render: (row) => formatMoney(row.tarifa, row.moneda) },
+    { id: "ingresoReal", header: "Ingreso real", value: (row) => row.ingresoReal, render: (row) => formatMoney(row.ingresoReal, row.moneda) },
+    { id: "margenGenerado", header: "Margen", value: (row) => row.margenGenerado, render: (row) => formatMoney(row.margenGenerado, row.moneda) }
   ];
 
-  const exportTab = () => {
-    exportSheetsToExcel(
-      [
-        createExportSheet("Resumen proyecto", summary, summaryColumns),
-        createExportSheet("Resumen consultor", consultantSummary, consultantColumns),
-        createExportSheet("Detalle completo", computed, detailColumns)
-      ],
-      "gerencia_general_pestana_completa"
-    );
-  };
+  const exportTab = () => exportSheetsToExcel([
+    createExportSheet("Rentabilidad proyecto", summary, summaryColumns),
+    createExportSheet("Rentabilidad consultor", consultants, consultantColumns),
+    createExportSheet("Detalle tareas", computed, detailColumns)
+  ], "gerencia_general");
 
   return (
-    <div className="grid gap-4 sm:gap-6">
-      <section className="rounded-2xl bg-white p-3 shadow-soft ring-1 ring-slate-200 sm:p-5">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h2 className="text-lg font-bold text-slate-900 sm:text-xl">📊 Gerencia General</h2>
-          </div>
-          <button onClick={exportTab} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 sm:w-auto">
-            <Download size={16} /> Exportar pestaña completa
-          </button>
+    <section className="grid gap-4 rounded-2xl bg-white p-4 shadow-soft ring-1 ring-slate-200">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="text-xl font-black text-slate-950">GERENCIA GENERAL</h2>
+          <p className="text-sm font-bold text-slate-500">Análisis financiero y rentabilidad de proyectos</p>
         </div>
-      </section>
-
+        <button onClick={exportTab} className="rounded-xl bg-blue-700 px-4 py-2 text-sm font-black text-white hover:bg-blue-800">Exportar pestaña completa</button>
+      </div>
       <FilterPanel records={records} filters={filters} onChange={onFiltersChange} />
-      <SummaryCards {...totalValues} />
-
-      <DataTable
-        title="Resumen por país y proyecto"
-        rows={summary}
-        columns={summaryColumns}
-        fileName="gerencia_general_resumen_filtrado"
-      />
-
-      <DataTable
-        title="Resumen por consultor / persona"
-        rows={consultantSummary}
-        columns={consultantColumns}
-        fileName="gerencia_general_resumen_consultor_filtrado"
-      />
-    </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <MetricCard icon={DollarSign} label="Ingreso estimado" value={formatMoney(total.ingresoEstimado, total.moneda)} />
+        <MetricCard icon={Landmark} label="Ingreso real" value={formatMoney(total.ingresoReal, total.moneda)} />
+        <MetricCard icon={DollarSign} label="Costo estimado (70%)" value={formatMoney(total.costoEstimado70, total.moneda)} />
+        <MetricCard icon={DollarSign} label="Costo ejecutado (70%)" value={formatMoney(total.costoEjecutado70, total.moneda)} />
+        <MetricCard icon={TrendingUp} label="Rentabilidad estimada" value={formatPercent(total.rentabilidadEstimada)} helper="(Ingreso estimado - costo) / ingreso" />
+        <MetricCard icon={DollarSign} label="Proyección de costo" value={formatMoney(total.proyeccionCosto, total.moneda)} helper="Costo ejecutado / progreso" />
+        <MetricCard icon={BarChart3} label="Rentabilidad proyectada" value={formatPercent(total.rentabilidadProyectada)} />
+        <MetricCard icon={Percent} label="Desviación vs estimada" value={formatPp(total.desviacionPp)} helper="Rent. proyectada - estimada" />
+      </div>
+      <DataTable title="Rentabilidad por país, cliente y proyecto" rows={summary} columns={summaryColumns} fileName="rentabilidad_proyecto" />
+      <DataTable title="Rentabilidad por consultor" rows={consultants} columns={consultantColumns} fileName="rentabilidad_consultor" />
+      <div className="rounded-2xl bg-slate-50 p-4 text-xs font-semibold text-slate-600">
+        Tarifa única = 100% &nbsp; | &nbsp; Costo por hora = Tarifa × 0.70 &nbsp; | &nbsp; Margen esperado por hora = Tarifa × 0.30
+      </div>
+    </section>
   );
 }
 
-function moneyOrNoTariff(value: number | null | undefined, currency?: string | null) {
-  return currency === "Sin tarifa" ? <Badge tone="orange">Sin tarifa</Badge> : formatMoney(value, currency);
-}
-
-function resultBadge(value: number, currency?: string | null) {
-  const tone = value >= 0 ? "green" : "red";
-  return <Badge tone={tone}>{formatMoney(value, currency)}</Badge>;
-}
-
 function sum<T extends Record<string, unknown>>(rows: T[], key: keyof T) {
-  return rows.reduce((acc, row) => {
-    const value = Number(row[key] ?? 0);
-    return Number.isFinite(value) ? acc + value : acc;
-  }, 0);
-}
-
-function resolveCurrency(values: Array<string | null | undefined>) {
-  const uniques = [...new Set(values.filter((value) => value && value !== "Sin tarifa"))] as string[];
-  if (uniques.length === 0) return "USD";
-  if (uniques.length === 1) return uniques[0];
-  return uniques.join("/");
+  return rows.reduce((acc, row) => acc + Number(row[key] ?? 0), 0);
 }

@@ -1,48 +1,29 @@
 import { CurrencyCode } from "../types";
 
-export function roundNumber(value: number | null | undefined, decimals = 2) {
-  if (value === null || value === undefined || Number.isNaN(value) || !Number.isFinite(value)) return 0;
+export function roundNumber(value: number, decimals = 2) {
+  if (!Number.isFinite(value)) return 0;
   const factor = 10 ** decimals;
   return Math.round((value + Number.EPSILON) * factor) / factor;
 }
 
-export function formatNumber(value: number | null | undefined, decimals = 2) {
-  if (value === null || value === undefined || Number.isNaN(value)) return "—";
-  return roundNumber(value, decimals).toLocaleString("es-PE", {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals
-  });
+export function formatHours(value: number) {
+  return `${roundNumber(value, 2).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} h`;
 }
 
-export function formatHours(value: number | null | undefined) {
-  if (value === null || value === undefined || Number.isNaN(value)) return "—";
-  return `${formatNumber(value, 2)} h`;
+export function formatMoney(value: number, currency: CurrencyCode | string = "USD") {
+  const prefix = currency === "PEN" ? "S/" : "US$";
+  return `${prefix} ${roundNumber(value, 2).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-export function currencySymbol(currency?: CurrencyCode | string | null) {
-  if (!currency) return "US$";
-  const value = String(currency).toUpperCase();
-  if (value === "USD") return "US$";
-  if (value === "PEN") return "S/";
-  if (value.includes("/")) return value;
-  return value;
+export function formatPercent(value: number) {
+  return `${roundNumber(value * 100, 2).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
 }
 
-export function formatMoney(value: number | null | undefined, currency: CurrencyCode | string | null = "USD") {
-  if (value === null || value === undefined || Number.isNaN(value)) return "—";
-  return `${currencySymbol(currency)} ${formatNumber(value, 2)}`;
+export function formatPp(value: number) {
+  const pp = roundNumber(value * 100, 2);
+  return `${pp >= 0 ? "+" : ""}${pp.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} pp`;
 }
 
-export function formatPercent(value: number | null | undefined) {
-  if (value === null || value === undefined || Number.isNaN(value)) return "—";
-  return `${formatNumber(value, 2)}%`;
-}
-
-export function dateTimeParts(iso: string) {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return { date: "—", time: "—" };
-  return {
-    date: date.toLocaleDateString("es-PE"),
-    time: date.toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" })
-  };
+export function todayIso() {
+  return new Date().toISOString().slice(0, 10);
 }

@@ -2,22 +2,20 @@ import * as XLSX from "xlsx";
 import { roundNumber } from "./format";
 
 const HEADER_TOKENS = [
-  "pais",
-  "país",
-  "cliente",
-  "proyecto",
-  "hito",
-  "hitos",
-  "rol",
+  "task id",
+  "task name",
+  "parent id",
   "assignee",
   "persona",
   "time estimate",
   "time logged",
-  "horas",
-  "fecha",
-  "due date",
-  "start date",
-  "end date"
+  "horas facturables",
+  "pais",
+  "país",
+  "cliente",
+  "proyecto",
+  "rol",
+  "due date"
 ];
 
 export async function readWorkbook(file: File): Promise<Record<string, unknown>[]> {
@@ -38,11 +36,10 @@ export async function readWorkbook(file: File): Promise<Record<string, unknown>[
   if (headerRowIndex < 0) return [];
 
   const headers = buildUniqueHeaders(matrix[headerRowIndex] ?? []);
-  const dataRows = matrix.slice(headerRowIndex + 1);
-
-  return dataRows
-    .filter((row) => !isRepeatedHeaderRow(row ?? [], headers))
+  return matrix
+    .slice(headerRowIndex + 1)
     .filter((row) => meaningfulCellCount(row ?? []) > 1)
+    .filter((row) => !isRepeatedHeader(row ?? [], headers))
     .map((row) => rowToObject(headers, row ?? []))
     .filter((row) => Object.values(row).some((value) => value !== "" && value !== null && value !== undefined));
 }
@@ -50,48 +47,33 @@ export async function readWorkbook(file: File): Promise<Record<string, unknown>[
 function detectHeaderRow(matrix: unknown[][]) {
   let bestIndex = -1;
   let bestScore = 0;
-
-  matrix.slice(0, 30).forEach((row, index) => {
-    const cells = row.map((cell) => String(cell ?? "").trim()).filter(Boolean);
+  matrix.slice(0, 35).forEach((row, index) => {
+    const cells = row.map((cell) => normalizeHeader(String(cell ?? ""))).filter(Boolean);
     if (cells.length < 3) return;
-
-    const normalizedCells = cells.map(normalizeHeaderProbe);
-    const score = normalizedCells.reduce((acc, cell) => {
-      const matched = HEADER_TOKENS.some((token) => cell === normalizeHeaderProbe(token) || cell.includes(normalizeHeaderProbe(token)));
-      return acc + (matched ? 1 : 0);
+    const score = cells.reduce((acc, cell) => {
+      return acc + (HEADER_TOKENS.some((token) => cell === normalizeHeader(token) || cell.includes(normalizeHeader(token))) ? 1 : 0);
     }, 0);
-
     if (score > bestScore) {
       bestScore = score;
       bestIndex = index;
     }
   });
-
   return bestScore >= 3 ? bestIndex : -1;
 }
 
-function isRepeatedHeaderRow(row: unknown[], headers: string[]) {
-  const normalizedHeaders = new Set(headers.map(normalizeHeaderProbe));
-  const nonEmpty = row.map((cell) => String(cell ?? "").trim()).filter(Boolean);
-  if (nonEmpty.length < 3) return false;
-
-  const matches = nonEmpty.reduce((acc, cell) => {
-    return acc + (normalizedHeaders.has(normalizeHeaderProbe(cell)) ? 1 : 0);
-  }, 0);
-
-  return matches >= 3;
+function isRepeatedHeader(row: unknown[], headers: string[]) {
+  const normalizedHeaders = new Set(headers.map(normalizeHeader));
+  const cells = row.map((cell) => normalizeHeader(String(cell ?? ""))).filter(Boolean);
+  if (cells.length < 3) return false;
+  return cells.filter((cell) => normalizedHeaders.has(cell)).length >= 3;
 }
 
 function meaningfulCellCount(row: unknown[]) {
-  return row.filter((cell) => {
-    if (cell === null || cell === undefined) return false;
-    return String(cell).trim() !== "";
-  }).length;
+  return row.filter((cell) => cell !== null && cell !== undefined && String(cell).trim() !== "").length;
 }
 
 function buildUniqueHeaders(row: unknown[]) {
   const used = new Map<string, number>();
-
   return row.map((cell, index) => {
     const base = String(cell ?? "").trim() || `Columna ${index + 1}`;
     const count = used.get(base) ?? 0;
@@ -101,14 +83,14 @@ function buildUniqueHeaders(row: unknown[]) {
 }
 
 function rowToObject(headers: string[], row: unknown[]) {
-  const output: Record<string, unknown> = {};
+  const out: Record<string, unknown> = {};
   headers.forEach((header, index) => {
-    output[header] = row[index] ?? "";
+    out[header] = row[index] ?? "";
   });
-  return output;
+  return out;
 }
 
-function normalizeHeaderProbe(value: string) {
+function normalizeHeader(value: string) {
   return value
     .toLowerCase()
     .normalize("NFD")
@@ -124,49 +106,36 @@ export type ExportColumn<T> = {
   value: (row: T) => string | number | null | undefined;
 };
 
-export type ExportSheet = {
-  sheetName: string;
-  rows: Record<string, string | number>[];
-};
-
 export function exportRowsToExcel<T>(rows: T[], columns: ExportColumn<T>[], fileName: string) {
   exportSheetsToExcel([{ sheetName: "Datos", rows: createExportData(rows, columns) }], fileName);
 }
 
-export function createExportSheet<T>(sheetName: string, rows: T[], columns: ExportColumn<T>[]): ExportSheet {
+export function createExportSheet<T>(sheetName: string, rows: T[], columns: ExportColumn<T>[]) {
   return { sheetName, rows: createExportData(rows, columns) };
 }
 
-export function exportSheetsToExcel(sheets: ExportSheet[], fileName: string) {
+export function exportSheetsToExcel(sheets: Array<{ sheetName: string; rows: Record<string, string | number>[] }>, fileName: string) {
   const workbook = XLSX.utils.book_new();
-
-  sheets.forEach((sheetConfig, index) => {
-    const sheet = XLSX.utils.json_to_sheet(sheetConfig.rows);
-    XLSX.utils.book_append_sheet(workbook, sheet, sanitizeSheetName(sheetConfig.sheetName || `Hoja ${index + 1}`));
+  sheets.forEach((sheet, index) => {
+    const worksheet = XLSX.utils.json_to_sheet(sheet.rows);
+    XLSX.utils.book_append_sheet(workbook, worksheet, sanitizeSheetName(sheet.sheetName || `Hoja ${index + 1}`));
   });
-
   XLSX.writeFile(workbook, `${sanitizeFileName(fileName)}.xlsx`);
 }
 
-export function createExportData<T>(rows: T[], columns: ExportColumn<T>[]) {
-  return rows.map((row) => rowToExportObject(row, columns));
-}
-
-function rowToExportObject<T>(row: T, columns: ExportColumn<T>[]) {
-  const item: Record<string, string | number> = {};
-  columns.forEach((column) => {
-    const value = column.value(row);
-    item[column.header] = value === null || value === undefined ? "" : typeof value === "number" ? roundNumber(value, 2) : value;
+function createExportData<T>(rows: T[], columns: ExportColumn<T>[]) {
+  return rows.map((row) => {
+    const item: Record<string, string | number> = {};
+    columns.forEach((column) => {
+      const value = column.value(row);
+      item[column.header] = value === null || value === undefined ? "" : typeof value === "number" ? roundNumber(value, 2) : value;
+    });
+    return item;
   });
-  return item;
 }
 
 function sanitizeSheetName(sheetName: string) {
-  return sheetName
-    .replace(/[\/?*\[\]:]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 31) || "Datos";
+  return sheetName.replace(/[\/?*\[\]:]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 31) || "Datos";
 }
 
 function sanitizeFileName(fileName: string) {

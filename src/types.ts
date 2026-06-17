@@ -1,31 +1,22 @@
-export type Severity = "info" | "warning" | "error";
-
-export type CurrencyCode = "PEN" | "USD";
+export type CurrencyCode = "USD" | "PEN";
+export type ViewKey = "upload" | "rates" | "services" | "general";
 
 export type ValidationWarning = {
   id: string;
-  severity: Severity;
-  type:
-    | "missing-column"
-    | "numeric"
-    | "default"
-    | "tariff"
-    | "empty"
-    | "zero"
-    | "date";
+  severity: "info" | "warning" | "error";
   message: string;
   count?: number;
 };
 
 export type NormalizedRecord = {
   id: string;
+  taskId: string;
+  taskName: string;
+  parentId: string;
   pais: string;
   cliente: string;
   proyecto: string;
   hitoFacturable: string;
-  rolEstimado: string;
-  rolAsignado: string;
-  persona: string;
   horasEstimadas: number;
   horasRegistradas: number;
   horasFacturables: number;
@@ -37,7 +28,6 @@ export type NormalizedRecord = {
 export type UploadItem = {
   id: string;
   fileName: string;
-  description: string;
   uploadedAt: string;
   rowCount: number;
   status: "Activa" | "Histórica";
@@ -45,89 +35,110 @@ export type UploadItem = {
   warnings: ValidationWarning[];
 };
 
-export type OperationRate = {
-  id: string;
-  role: string;
-  rate: number;
-  currency?: CurrencyCode;
-  updatedAt: string;
-  status: "Activo" | "Inactivo";
-};
-
-export type CommercialRate = {
+export type TariffRate = {
   id: string;
   pais: string;
   cliente: string;
   proyecto: string;
-  role: string;
-  rate: number;
-  currency?: CurrencyCode;
-  validFrom: string;
+  perfil: string;
+  tarifa: number;
+  moneda: CurrencyCode;
   status: "Activo" | "Inactivo";
 };
 
 export type FilterState = {
+  fechaInicio: string;
+  fechaFin: string;
   pais: string;
   cliente: string;
   proyecto: string;
   hitoFacturable: string;
-  fechaInicio: string;
-  fechaFin: string;
 };
 
-export type ComputedRow = NormalizedRecord & {
-  tarifaOperacionesHora: number | null;
-  tarifaComercialHora: number | null;
-  monedaOperaciones: CurrencyCode;
-  monedaComercial: CurrencyCode | null;
-  facturacionEstimadaComercial: number;
-  facturacionRegistradaComercial: number;
-  facturacionRealComercial: number;
-  costoEstimadoOperaciones: number;
-  costoEjecutadoOperaciones: number;
-  costoRealOperaciones: number;
-  resultadoOperativo: number | null;
-  tieneTarifaOperaciones: boolean;
-  tieneTarifaComercial: boolean;
+export type ComputedRecord = NormalizedRecord & {
+  tarifa: number;
+  moneda: CurrencyCode;
+  costoPorHora70: number;
+  ingresoEstimado: number;
+  ingresoReal: number;
+  costoEstimado70: number;
+  costoEjecutado70: number;
+  horasNoFacturables: number;
+  progreso: number;
+  saldoDisponible70: number;
+  proyeccionCosto: number;
+  rentabilidadEstimada: number;
+  rentabilidadProyectada: number;
+  desviacionPp: number;
+  margenGenerado: number;
+  tieneTarifa: boolean;
 };
 
-export type SummaryRow = {
+export type ServiceProjectSummary = {
   id: string;
   pais: string;
+  cliente: string;
   proyecto: string;
-  monedaOperaciones?: string;
-  monedaComercial?: string;
+  moneda: CurrencyCode;
   horasEstimadas: number;
   horasRegistradas: number;
   horasFacturables: number;
-  facturacionEstimadaComercial?: number;
-  facturacionRegistradaComercial?: number;
-  facturacionRealComercial?: number;
-  costoEstimadoOperaciones?: number;
-  costoEjecutadoOperaciones?: number;
-  costoRealOperaciones: number;
-  resultadoOperativo?: number;
+  horasNoFacturables: number;
+  progreso: number;
+  costoEstimado70: number;
+  costoEjecutado70: number;
+  saldoDisponible70: number;
 };
 
-export type ConsultantSummaryRow = {
+export type ServiceConsultantSummary = {
   id: string;
-  persona: string;
-  paises: string;
-  clientes: string;
-  proyectos: string;
-  roles: string;
-  monedaOperaciones: string;
-  monedaComercial: string;
+  consultor: string;
+  pais: string;
+  cliente: string;
+  proyecto: string;
+  perfil: string;
+  moneda: CurrencyCode;
   horasEstimadas: number;
   horasRegistradas: number;
   horasFacturables: number;
-  facturacionEstimadaComercial: number;
-  facturacionRegistradaComercial: number;
-  facturacionRealComercial: number;
-  costoEstimadoOperaciones: number;
-  costoEjecutadoOperaciones: number;
-  costoRealOperaciones: number;
-  resultadoOperativo: number | null;
+  tarifa: number;
+  costoPorHora70: number;
+  costoEjecutado70: number;
+  progreso: number;
 };
 
-export type TabKey = "upload" | "rates" | "general" | "services";
+export type GeneralProjectSummary = {
+  id: string;
+  pais: string;
+  cliente: string;
+  proyecto: string;
+  moneda: CurrencyCode;
+  ingresoEstimado: number;
+  ingresoReal: number;
+  costoEstimado70: number;
+  costoEjecutado70: number;
+  proyeccionCosto: number;
+  rentabilidadEstimada: number;
+  rentabilidadProyectada: number;
+  desviacionPp: number;
+};
+
+export type GeneralConsultantSummary = {
+  id: string;
+  consultor: string;
+  proyecto: string;
+  perfil: string;
+  moneda: CurrencyCode;
+  horasRegistradas: number;
+  tarifa: number;
+  ingresoGenerado: number;
+  costoEjecutado70: number;
+  margenGenerado: number;
+  participacionMargen: number;
+};
+
+export type CloudAppState = {
+  uploads: UploadItem[];
+  activeUploadId: string;
+  tariffs: TariffRate[];
+};

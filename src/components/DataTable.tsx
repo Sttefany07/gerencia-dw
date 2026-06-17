@@ -1,223 +1,97 @@
-import { ArrowDownUp, Download, Search } from "lucide-react";
-import { ReactNode, useMemo, useState } from "react";
-import { exportRowsToExcel } from "../utils/excel";
-import { formatNumber } from "../utils/format";
+import { Download } from "lucide-react";
+import { ReactNode } from "react";
+import { exportRowsToExcel, ExportColumn } from "../utils/excel";
+import { roundNumber } from "../utils/format";
 
-export type Column<T> = {
+export type Column<T> = ExportColumn<T> & {
   id: string;
-  header: string;
-  value: (row: T) => string | number | null | undefined;
+  className?: string;
   render?: (row: T) => ReactNode;
-  numeric?: boolean;
   total?: boolean;
   totalRender?: (rows: T[]) => ReactNode;
-  width?: string;
 };
 
-type Props<T> = {
+export function DataTable<T extends Record<string, unknown>>({
+  title,
+  rows,
+  columns,
+  fileName
+}: {
   title: string;
-  description?: string;
   rows: T[];
   columns: Column<T>[];
   fileName: string;
-};
-
-export function DataTable<T>({ title, rows, columns, fileName }: Props<T>) {
-  const [query, setQuery] = useState("");
-  const [sort, setSort] = useState<{ id: string; direction: "asc" | "desc" } | null>(null);
-
-  const tableWidthClass = columns.length >= 12 ? "min-w-[1700px]" : columns.length >= 8 ? "min-w-[1180px]" : "min-w-[860px]";
-
-  const visibleRows = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    let filtered = q
-      ? rows.filter((row) => columns.some((column) => String(column.value(row) ?? "").toLowerCase().includes(q)))
-      : [...rows];
-
-    if (sort) {
-      const column = columns.find((item) => item.id === sort.id);
-      if (column) {
-        filtered = [...filtered].sort((a, b) => compareValues(column.value(a), column.value(b), sort.direction));
-      }
-    }
-
-    return filtered;
-  }, [rows, columns, query, sort]);
-
-  const toggleSort = (id: string) => {
-    setSort((current) => {
-      if (!current || current.id !== id) return { id, direction: "asc" };
-      if (current.direction === "asc") return { id, direction: "desc" };
-      return null;
-    });
-  };
-
-  const exportData = () => {
-    exportRowsToExcel(
-      visibleRows,
-      columns.map((column) => ({ header: column.header, value: column.value })),
-      fileName
-    );
-  };
-
+}) {
   return (
-    <section className="w-full overflow-hidden rounded-2xl bg-white shadow-soft ring-1 ring-slate-200">
-      <div className="flex flex-col gap-3 border-b border-slate-200 p-3 sm:p-4 lg:flex-row lg:items-center lg:justify-between">
-        <div className="min-w-0">
-          <h3 className="break-words text-sm font-bold text-slate-900 sm:text-base">{title}</h3>
-          <p className="mt-1 text-xs font-semibold text-slate-500">Registros visibles: {visibleRows.length}</p>
-        </div>
-        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-          <label className="relative w-full sm:w-72">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Buscar en tabla..."
-              className="w-full rounded-xl border border-slate-300 py-2 pl-9 pr-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-            />
-          </label>
-          <button onClick={exportData} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 sm:w-auto">
-            <Download size={16} />
-            Descargar Excel
-          </button>
-        </div>
+    <section className="overflow-hidden rounded-2xl bg-white shadow-soft ring-1 ring-slate-200">
+      <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <h3 className="text-base font-black text-slate-950">{title}</h3>
+        <button
+          onClick={() => exportRowsToExcel(rows, columns, fileName)}
+          className="inline-flex items-center justify-center gap-2 rounded-xl border border-blue-200 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50"
+        >
+          <Download size={15} /> Exportar
+        </button>
       </div>
 
-      <div className="grid gap-3 p-3 md:hidden">
-        {visibleRows.map((row, rowIndex) => (
-          <article key={rowIndex} className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-            <div className="border-b border-slate-100 pb-2">
-              <p className="break-words text-sm font-bold text-slate-900">{String(columns[0]?.value(row) ?? `Registro ${rowIndex + 1}`)}</p>
-              {columns[1] && <p className="mt-1 break-words text-xs font-medium text-slate-500">{String(columns[1].value(row) ?? "")}</p>}
-            </div>
-            <dl className="mt-3 grid gap-2">
-              {columns.slice(2).map((column) => {
-                const rawValue = column.value(row);
-                const displayValue = column.render
-                  ? column.render(row)
-                  : column.numeric && typeof rawValue === "number"
-                    ? formatNumber(rawValue, 2)
-                    : String(rawValue ?? "");
-
-                return (
-                  <div key={column.id} className="grid grid-cols-[44%_1fr] items-start gap-2 rounded-xl bg-slate-50 px-3 py-2">
-                    <dt className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{column.header}</dt>
-                    <dd className={`min-w-0 break-words text-right text-xs text-slate-800 ${column.numeric ? "font-semibold tabular-nums" : "font-medium"}`}>{displayValue}</dd>
-                  </div>
-                );
-              })}
-            </dl>
-          </article>
-        ))}
-        {visibleRows.length === 0 && (
-          <div className="rounded-2xl border border-dashed border-slate-300 px-3 py-10 text-center text-sm text-slate-500">
-            No hay registros para mostrar.
-          </div>
-        )}
-      </div>
-
-      {columns.some((column) => column.total) && visibleRows.length > 0 && (
-        <div className="border-t border-slate-200 bg-slate-900 p-3 text-white md:hidden">
-          <p className="text-xs font-black uppercase tracking-wide text-slate-300">Totales</p>
-          <div className="mt-2 grid gap-2">
-            {columns.filter((column) => column.total).map((column) => {
-              const total = visibleRows.reduce((acc, row) => {
-                const value = Number(column.value(row) ?? 0);
-                return Number.isFinite(value) ? acc + value : acc;
-              }, 0);
-              const totalDisplay = column.totalRender ? column.totalRender(visibleRows) : formatNumber(total, 2);
-              return (
-                <div key={column.id} className="flex items-center justify-between gap-3 rounded-xl bg-white/10 px-3 py-2">
-                  <span className="text-xs font-semibold text-slate-200">{column.header}</span>
-                  <span className="text-right text-xs font-bold tabular-nums">{totalDisplay}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      <div className="hidden w-full overflow-x-auto overflow-y-auto md:block md:max-h-[70vh]">
-        <table className={`${tableWidthClass} border-separate border-spacing-0 text-xs lg:text-sm`}>
-          <thead className="sticky top-0 z-10 bg-slate-50">
+      <div className="hidden overflow-x-auto md:block">
+        <table className="w-full min-w-[980px] text-left text-xs">
+          <thead className="bg-slate-50 text-[11px] uppercase text-slate-500">
             <tr>
               {columns.map((column) => (
-                <th
-                  key={column.id}
-                  style={{ minWidth: column.width }}
-                  className={`border-b border-slate-200 px-3 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-slate-600 ${column.numeric ? "text-right" : ""}`}
-                >
-                  <button className="inline-flex items-center gap-1 whitespace-nowrap" onClick={() => toggleSort(column.id)}>
-                    {column.header}
-                    <ArrowDownUp size={13} className="text-slate-400" />
-                  </button>
-                </th>
+                <th key={column.id} className={`px-4 py-3 font-black ${column.className ?? ""}`}>{column.header}</th>
               ))}
             </tr>
           </thead>
-          <tbody>
-            {visibleRows.map((row, rowIndex) => (
-              <tr key={rowIndex} className="odd:bg-white even:bg-slate-50/60 hover:bg-blue-50/50">
-                {columns.map((column) => {
-                  const rawValue = column.value(row);
-                  const displayValue = column.render
-                    ? column.render(row)
-                    : column.numeric && typeof rawValue === "number"
-                      ? formatNumber(rawValue, 2)
-                      : String(rawValue ?? "");
-
-                  return (
-                    <td key={column.id} className={`border-b border-slate-100 px-3 py-2 align-top text-slate-700 ${column.numeric ? "text-right font-medium tabular-nums" : ""}`}>
-                      <div className="max-w-[320px] break-words">{displayValue}</div>
-                    </td>
-                  );
-                })}
+          <tbody className="divide-y divide-slate-100">
+            {rows.map((row, index) => (
+              <tr key={String(row.id ?? index)} className="hover:bg-slate-50">
+                {columns.map((column) => (
+                  <td key={column.id} className={`px-4 py-3 align-top font-semibold text-slate-700 ${column.className ?? ""}`}>
+                    {column.render ? column.render(row) : formatCell(column.value(row))}
+                  </td>
+                ))}
               </tr>
             ))}
-            {visibleRows.length === 0 && (
-              <tr>
-                <td colSpan={columns.length} className="px-3 py-10 text-center text-sm text-slate-500">
-                  No hay registros para mostrar.
-                </td>
-              </tr>
-            )}
           </tbody>
-          {columns.some((column) => column.total) && (
-            <tfoot className="sticky bottom-0 bg-slate-900 text-white">
+          {rows.length > 0 && columns.some((column) => column.total) && (
+            <tfoot className="bg-slate-950 text-xs font-black text-white">
               <tr>
-                {columns.map((column, index) => {
-                  const total = column.total
-                    ? visibleRows.reduce((acc, row) => {
-                        const value = Number(column.value(row) ?? 0);
-                        return Number.isFinite(value) ? acc + value : acc;
-                      }, 0)
-                    : null;
-                  const totalDisplay = column.totalRender
-                    ? column.totalRender(visibleRows)
-                    : column.total
-                      ? formatNumber(total ?? 0)
-                      : "";
-
-                  return (
-                    <td key={column.id} className={`px-3 py-3 text-xs font-bold lg:text-sm ${column.numeric ? "text-right tabular-nums" : ""}`}>
-                      {index === 0 ? "TOTAL" : totalDisplay}
-                    </td>
-                  );
-                })}
+                {columns.map((column, index) => (
+                  <td key={column.id} className={`px-4 py-3 ${column.className ?? ""}`}>
+                    {index === 0
+                      ? "TOTAL"
+                      : column.total
+                        ? column.totalRender
+                          ? column.totalRender(rows)
+                          : roundNumber(rows.reduce((acc, row) => acc + Number(column.value(row) ?? 0), 0), 2)
+                        : ""}
+                  </td>
+                ))}
               </tr>
             </tfoot>
           )}
         </table>
       </div>
+
+      <div className="grid gap-3 p-3 md:hidden">
+        {rows.map((row, index) => (
+          <article key={String(row.id ?? index)} className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+            {columns.map((column) => (
+              <div key={column.id} className="grid grid-cols-2 gap-2 border-b border-slate-200 py-2 last:border-0">
+                <span className="text-[11px] font-black uppercase text-slate-500">{column.header}</span>
+                <span className="text-right text-xs font-bold text-slate-800">{column.render ? column.render(row) : formatCell(column.value(row))}</span>
+              </div>
+            ))}
+          </article>
+        ))}
+      </div>
     </section>
   );
 }
 
-function compareValues(a: string | number | null | undefined, b: string | number | null | undefined, direction: "asc" | "desc") {
-  const multiplier = direction === "asc" ? 1 : -1;
-  const aValue = a ?? "";
-  const bValue = b ?? "";
-  if (typeof aValue === "number" && typeof bValue === "number") return (aValue - bValue) * multiplier;
-  return String(aValue).localeCompare(String(bValue), "es", { numeric: true }) * multiplier;
+function formatCell(value: string | number | null | undefined) {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "number") return roundNumber(value, 2).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return value;
 }
