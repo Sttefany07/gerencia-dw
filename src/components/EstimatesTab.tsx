@@ -109,6 +109,11 @@ export function EstimatesTab({
     });
   };
 
+  const removeMonth = () => {
+    if (!selected || maxMonth <= 1) return;
+    upsert(selected.id, { items: selected.items.filter((item) => item.monthIndex !== maxMonth) });
+  };
+
   const saveEstimate = () => {
     if (!selected) return;
     onEstimatesChange(estimates.map((estimate) => (estimate.id === selected.id ? selected : estimate)));
@@ -198,6 +203,13 @@ export function EstimatesTab({
                 </select>
                 <button onClick={addProfile} className="rounded-xl border border-blue-200 px-3 py-2 text-xs font-black text-blue-700 hover:bg-blue-50">Agregar perfil</button>
                 <button onClick={addMonth} className="rounded-xl border border-blue-200 px-3 py-2 text-xs font-black text-blue-700 hover:bg-blue-50">Agregar mes</button>
+                <button
+                  onClick={removeMonth}
+                  disabled={maxMonth <= 1}
+                  className="rounded-xl border border-red-200 px-3 py-2 text-xs font-black text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Eliminar mes
+                </button>
               </div>
             </div>
             <div className="overflow-x-auto">
