@@ -1,9 +1,9 @@
-import { BarChart3, FileSpreadsheet, Tags, Users } from "lucide-react";
+import { BarChart3, Calculator, FileSpreadsheet, Users } from "lucide-react";
 import { ViewKey } from "../types";
 
 const tabs: Array<{ key: ViewKey; label: string; icon: typeof Users }> = [
   { key: "upload", label: "CARGA DE EXCEL", icon: FileSpreadsheet },
-  { key: "rates", label: "TARIFAS", icon: Tags },
+  { key: "estimates", label: "ESTIMACIONES", icon: Calculator },
   { key: "services", label: "GERENCIA DE SERVICIOS", icon: Users },
   { key: "general", label: "GERENCIA GENERAL", icon: BarChart3 }
 ];

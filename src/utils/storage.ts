@@ -1,7 +1,8 @@
 export const STORAGE_KEYS = {
-  uploads: "dw_uploads_v16",
-  activeUploadId: "dw_active_upload_v16",
-  tariffs: "dw_tariffs_v16"
+  uploads: "dw_uploads_v19",
+  activeUploadId: "dw_active_upload_v19",
+  tariffs: "dw_tariffs_v19",
+  estimates: "dw_estimates_v19"
 };
 
 export function loadFromStorage<T>(key: string, fallback: T): T {

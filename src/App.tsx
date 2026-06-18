@@ -2,11 +2,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import { GeneralManagement } from "./components/GeneralManagement";
 import { UploadTab } from "./components/UploadTab";
-import { TariffsTab } from "./components/TariffsTab";
 import { ServicesManagement } from "./components/ServicesManagement";
 import { Tabs } from "./components/Tabs";
-import { CloudAppState, FilterState, TariffRate, UploadItem, ViewKey } from "./types";
-import { defaultTariffs, emptyFilters, ensureTariffsForRecords, sanitizeTariffs } from "./utils/calculations";
+import { EstimatesTab } from "./components/EstimatesTab";
+import { CloudAppState, FilterState, ProjectEstimate, TariffRate, UploadItem, ViewKey } from "./types";
+import { buildEstimatesFromRecords, defaultTariffs, emptyFilters, ensureTariffsForRecords, sanitizeTariffs } from "./utils/calculations";
 import { isCloudStorageConfigured, loadCloudState, saveCloudState } from "./utils/cloudStorage";
 import { createId } from "./utils/ids";
 import { loadFromStorage, saveToStorage, STORAGE_KEYS } from "./utils/storage";
@@ -16,6 +16,7 @@ export default function App() {
   const [uploads, setUploads] = useState<UploadItem[]>(() => loadFromStorage(STORAGE_KEYS.uploads, []));
   const [activeUploadId, setActiveUploadId] = useState<string>(() => loadFromStorage(STORAGE_KEYS.activeUploadId, ""));
   const [tariffs, setTariffs] = useState<TariffRate[]>(() => sanitizeTariffs(loadFromStorage(STORAGE_KEYS.tariffs, defaultTariffs)));
+  const [estimates, setEstimates] = useState<ProjectEstimate[]>(() => loadFromStorage(STORAGE_KEYS.estimates, []));
   const [filters, setFilters] = useState<FilterState>(emptyFilters);
   const [cloudReady, setCloudReady] = useState(!isCloudStorageConfigured());
   const [cloudStatus, setCloudStatus] = useState(isCloudStorageConfigured() ? "Sincronizando nube..." : "Guardado local");
@@ -24,6 +25,7 @@ export default function App() {
   useEffect(() => saveToStorage(STORAGE_KEYS.uploads, uploads), [uploads]);
   useEffect(() => saveToStorage(STORAGE_KEYS.activeUploadId, activeUploadId), [activeUploadId]);
   useEffect(() => saveToStorage(STORAGE_KEYS.tariffs, tariffs), [tariffs]);
+  useEffect(() => saveToStorage(STORAGE_KEYS.estimates, estimates), [estimates]);
 
   useEffect(() => {
     if (!isCloudStorageConfigured()) {
@@ -42,6 +44,7 @@ export default function App() {
           setUploads(cloudState.uploads ?? []);
           setActiveUploadId(cloudState.activeUploadId ?? "");
           setTariffs(sanitizeTariffs(cloudState.tariffs ?? defaultTariffs));
+          setEstimates(cloudState.estimates ?? []);
           setCloudStatus("Guardado en nube");
         } else {
           setCloudStatus("Nube lista");
@@ -62,7 +65,7 @@ export default function App() {
 
   useEffect(() => {
     if (!isCloudStorageConfigured() || !cloudReady || !hasLoadedCloud.current) return;
-    const state: CloudAppState = { uploads, activeUploadId, tariffs };
+    const state: CloudAppState = { uploads, activeUploadId, tariffs, estimates };
     const timeout = window.setTimeout(async () => {
       try {
         await saveCloudState(state);
@@ -73,7 +76,7 @@ export default function App() {
       }
     }, 800);
     return () => window.clearTimeout(timeout);
-  }, [uploads, activeUploadId, tariffs, cloudReady]);
+  }, [uploads, activeUploadId, tariffs, estimates, cloudReady]);
 
   const activeUpload = useMemo(() => uploads.find((upload) => upload.id === activeUploadId) ?? uploads[0] ?? null, [uploads, activeUploadId]);
   const records = activeUpload?.records ?? [];
@@ -81,11 +84,14 @@ export default function App() {
   const createUpload = (payload: Omit<UploadItem, "id" | "uploadedAt" | "status">) => {
     const id = createId("upload");
     const upload: UploadItem = { ...payload, id, uploadedAt: new Date().toISOString(), status: "Activa" };
+    const nextTariffs = ensureTariffsForRecords(payload.records, tariffs, estimates);
+    const importedEstimates = buildEstimatesFromRecords(payload.records, nextTariffs, payload.fileName);
     setUploads((current) => [upload, ...current.map((item) => ({ ...item, status: "Histórica" as const }))]);
     setActiveUploadId(id);
-    setTariffs((current) => ensureTariffsForRecords(payload.records, current));
+    setTariffs(nextTariffs);
+    if (importedEstimates.length > 0) setEstimates(importedEstimates);
     setFilters(emptyFilters);
-    setActiveView("rates");
+    setActiveView(importedEstimates.length > 0 ? "estimates" : "services");
   };
 
   const activateUpload = (id: string) => {
@@ -93,7 +99,7 @@ export default function App() {
     setUploads((current) => current.map((upload) => ({ ...upload, status: upload.id === id ? "Activa" : "Histórica" })));
     setActiveUploadId(id);
     setFilters(emptyFilters);
-    if (selected) setTariffs((current) => ensureTariffsForRecords(selected.records, current));
+    if (selected) setTariffs((current) => ensureTariffsForRecords(selected.records, current, estimates));
   };
 
   const deleteUpload = (id: string) => {
@@ -111,8 +117,8 @@ export default function App() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <p className="text-xs font-black uppercase tracking-[0.22em] text-blue-200">Sistema ejecutivo DW Consulware</p>
-              <h1 className="mt-2 text-2xl font-black tracking-tight sm:text-3xl">Gerencia de Servicios y Gerencia General</h1>
-              <p className="mt-2 max-w-4xl text-sm font-semibold text-blue-100">Solo se contabilizan tareas finales con persona asignada. Las tareas padre/control y columnas Roll Up no entran a las sumas.</p>
+              <h1 className="mt-2 text-2xl font-black tracking-tight sm:text-3xl">Gestion de proyectos, horas y rentabilidad</h1>
+              <p className="mt-2 max-w-4xl text-sm font-semibold text-blue-100">Trazabilidad desde estimacion por proyecto hasta ejecucion ClickUp y rentabilidad proyectada.</p>
             </div>
             <span className="w-fit rounded-full bg-white/10 px-3 py-1 text-xs font-black text-blue-100 ring-1 ring-white/20">{cloudStatus}</span>
           </div>
@@ -130,9 +136,18 @@ export default function App() {
           />
         )}
 
-        {activeView === "rates" && <TariffsTab records={records} tariffs={tariffs} onTariffsChange={setTariffs} />}
+        {activeView === "estimates" && (
+          <EstimatesTab
+            estimates={estimates}
+            tariffs={tariffs}
+            onEstimatesChange={(next) => {
+              setEstimates(next);
+              setTariffs((current) => ensureTariffsForRecords(records, current, next));
+            }}
+          />
+        )}
 
-        {!records.length && activeView !== "upload" && activeView !== "rates" && (
+        {!records.length && activeView !== "upload" && activeView !== "estimates" && (
           <section className="rounded-2xl bg-amber-50 p-5 text-amber-900 shadow-soft ring-1 ring-amber-200">
             <div className="flex gap-3">
               <AlertTriangle className="shrink-0" />
@@ -144,8 +159,8 @@ export default function App() {
           </section>
         )}
 
-        {records.length > 0 && activeView === "services" && <ServicesManagement records={records} filters={filters} onFiltersChange={setFilters} tariffs={tariffs} />}
-        {records.length > 0 && activeView === "general" && <GeneralManagement records={records} filters={filters} onFiltersChange={setFilters} tariffs={tariffs} />}
+        {records.length > 0 && activeView === "services" && <ServicesManagement records={records} filters={filters} onFiltersChange={setFilters} tariffs={tariffs} estimates={estimates} />}
+        {records.length > 0 && activeView === "general" && <GeneralManagement records={records} filters={filters} onFiltersChange={setFilters} tariffs={tariffs} estimates={estimates} />}
 
         <footer className="mt-4 rounded-2xl bg-white px-6 py-8 text-center shadow-soft ring-1 ring-slate-200">
           <p className="text-sm font-semibold text-slate-600">Equipo de operaciones</p>

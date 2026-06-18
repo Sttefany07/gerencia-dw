@@ -1,10 +1,11 @@
 export type CurrencyCode = "USD" | "PEN";
-export type ViewKey = "upload" | "rates" | "services" | "general";
+export type ViewKey = "upload" | "estimates" | "services" | "general";
 
 export type ValidationWarning = {
   id: string;
   severity: "info" | "warning" | "error";
   message: string;
+  type?: string;
   count?: number;
 };
 
@@ -13,13 +14,13 @@ export type NormalizedRecord = {
   taskId: string;
   taskName: string;
   parentId: string;
+  consultor: string;
   pais: string;
   cliente: string;
   proyecto: string;
-  hitoFacturable: string;
+  perfil: string;
   horasEstimadas: number;
   horasRegistradas: number;
-  horasFacturables: number;
   fechaInicio: string;
   fechaFin: string;
   raw?: Record<string, unknown>;
@@ -28,6 +29,7 @@ export type NormalizedRecord = {
 export type UploadItem = {
   id: string;
   fileName: string;
+  description?: string;
   uploadedAt: string;
   rowCount: number;
   status: "Activa" | "Histórica";
@@ -37,13 +39,31 @@ export type UploadItem = {
 
 export type TariffRate = {
   id: string;
-  pais: string;
-  cliente: string;
-  proyecto: string;
   perfil: string;
   tarifa: number;
   moneda: CurrencyCode;
   status: "Activo" | "Inactivo";
+};
+
+export type EstimateMonth = {
+  id: string;
+  perfil: string;
+  monthIndex: number;
+  horas: number;
+  tarifa: number;
+};
+
+export type ProjectEstimate = {
+  id: string;
+  version: string;
+  pais: string;
+  cliente: string;
+  proyecto: string;
+  fechaInicio: string;
+  fechaFin: string;
+  estado: "Borrador" | "Aprobada" | "Archivada";
+  createdAt: string;
+  items: EstimateMonth[];
 };
 
 export type FilterState = {
@@ -52,7 +72,6 @@ export type FilterState = {
   pais: string;
   cliente: string;
   proyecto: string;
-  hitoFacturable: string;
 };
 
 export type ComputedRecord = NormalizedRecord & {
@@ -63,7 +82,6 @@ export type ComputedRecord = NormalizedRecord & {
   ingresoReal: number;
   costoEstimado70: number;
   costoEjecutado70: number;
-  horasNoFacturables: number;
   progreso: number;
   saldoDisponible70: number;
   proyeccionCosto: number;
@@ -72,6 +90,8 @@ export type ComputedRecord = NormalizedRecord & {
   desviacionPp: number;
   margenGenerado: number;
   tieneTarifa: boolean;
+  estimacionId: string;
+  estimacionVersion: string;
 };
 
 export type ServiceProjectSummary = {
@@ -79,11 +99,10 @@ export type ServiceProjectSummary = {
   pais: string;
   cliente: string;
   proyecto: string;
+  estimacionVersion: string;
   moneda: CurrencyCode;
   horasEstimadas: number;
   horasRegistradas: number;
-  horasFacturables: number;
-  horasNoFacturables: number;
   progreso: number;
   costoEstimado70: number;
   costoEjecutado70: number;
@@ -97,10 +116,10 @@ export type ServiceConsultantSummary = {
   cliente: string;
   proyecto: string;
   perfil: string;
+  estimacionVersion: string;
   moneda: CurrencyCode;
   horasEstimadas: number;
   horasRegistradas: number;
-  horasFacturables: number;
   tarifa: number;
   costoPorHora70: number;
   costoEjecutado70: number;
@@ -112,7 +131,9 @@ export type GeneralProjectSummary = {
   pais: string;
   cliente: string;
   proyecto: string;
+  estimacionVersion: string;
   moneda: CurrencyCode;
+  progreso: number;
   ingresoEstimado: number;
   ingresoReal: number;
   costoEstimado70: number;
@@ -137,8 +158,24 @@ export type GeneralConsultantSummary = {
   participacionMargen: number;
 };
 
+export type SeniorityProfitabilitySummary = {
+  id: string;
+  perfil: string;
+  moneda: CurrencyCode;
+  horasEstimadas: number;
+  horasRegistradas: number;
+  ingresoEstimado: number;
+  ingresoReal: number;
+  costoEstimado70: number;
+  costoEjecutado70: number;
+  margenEstimado: number;
+  margenReal: number;
+  desviacionMargen: number;
+};
+
 export type CloudAppState = {
   uploads: UploadItem[];
   activeUploadId: string;
   tariffs: TariffRate[];
+  estimates: ProjectEstimate[];
 };

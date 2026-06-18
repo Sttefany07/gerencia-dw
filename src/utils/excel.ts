@@ -9,7 +9,6 @@ const HEADER_TOKENS = [
   "persona",
   "time estimate",
   "time logged",
-  "horas facturables",
   "pais",
   "país",
   "cliente",

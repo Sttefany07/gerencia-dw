@@ -12,10 +12,8 @@ type HeaderField =
   | "proyecto"
   | "consultor"
   | "perfil"
-  | "hitoFacturable"
   | "horasEstimadas"
   | "horasRegistradas"
-  | "horasFacturables"
   | "fechaInicio"
   | "fechaFin";
 
@@ -29,11 +27,9 @@ const aliases: Record<HeaderField, string[]> = {
   proyecto: ["proyecto", "proyecto drop down", "project"],
   consultor: ["assignee", "persona", "consultor", "responsable", "colaborador"],
   perfil: ["rol", "rol drop down", "perfil", "seniority", "rol estimado", "rol estimado drop down"],
-  hitoFacturable: ["hito facturable", "hitos facturable", "hitos facturables", "hito", "milestone"],
   // IMPORTANTE: no incluir columnas Rolled Up. Solo horas propias de la fila/tarea.
   horasEstimadas: ["time estimate", "horas estimadas", "hh estimadas", "horas planificadas"],
   horasRegistradas: ["time logged", "horas registradas", "hh registradas", "horas ejecutadas", "horas reales"],
-  horasFacturables: ["horas facturables", "horas facturables number", "hh facturables", "horas a facturar"],
   fechaInicio: ["fecha inicio", "inicio", "start date", "fecha de inicio"],
   fechaFin: ["due date", "fecha fin", "fin", "end date", "fecha de fin"]
 };
@@ -43,7 +39,7 @@ export function normalizeExcelRows(rows: Record<string, unknown>[]) {
   if (!rows.length) return { records: [], warnings };
 
   const headerMap = buildHeaderMap(rows[0] ?? {});
-  const required: HeaderField[] = ["consultor", "pais", "cliente", "proyecto", "perfil", "horasEstimadas", "horasRegistradas", "fechaFin"];
+  const required: HeaderField[] = ["consultor", "pais", "cliente", "proyecto", "perfil", "horasRegistradas", "fechaFin"];
 
   required.forEach((field) => {
     if (!headerMap[field]) {
@@ -62,39 +58,46 @@ export function normalizeExcelRows(rows: Record<string, unknown>[]) {
   }
 
   let invalidNumbers = 0;
-  const records = selected.rows.map((row, index): NormalizedRecord => {
+  let splitAssignments = 0;
+  const records = selected.rows.flatMap((row, index): NormalizedRecord[] => {
     const horasEstimadas = parseNumber(value(row, headerMap.horasEstimadas));
     const horasRegistradas = parseNumber(value(row, headerMap.horasRegistradas));
-    const horasFacturables = parseNumber(value(row, headerMap.horasFacturables));
     if (horasEstimadas.invalid) invalidNumbers += 1;
     if (horasRegistradas.invalid) invalidNumbers += 1;
-    if (horasFacturables.invalid) invalidNumbers += 1;
 
     const fechaFin = parseDateToIso(value(row, headerMap.fechaFin));
     const fechaInicio = parseDateToIso(value(row, headerMap.fechaInicio)) || fechaFin;
+    const consultants = splitConsultants(value(row, headerMap.consultor));
+    if (consultants.length > 1) splitAssignments += consultants.length - 1;
 
-    return {
-      id: createId(`row_${index + 1}`),
+    return consultants.map((consultor, consultantIndex) => ({
+      id: createId(`row_${index + 1}_${consultantIndex + 1}`),
       taskId: cleanText(value(row, headerMap.taskId)),
       taskName: cleanText(value(row, headerMap.taskName)),
       parentId: cleanText(value(row, headerMap.parentId)),
       pais: normalizeText(value(row, headerMap.pais)),
       cliente: normalizeText(value(row, headerMap.cliente)),
       proyecto: normalizeText(value(row, headerMap.proyecto)),
-      consultor: normalizeText(value(row, headerMap.consultor)),
-      perfil: normalizeText(value(row, headerMap.perfil)),
-      hitoFacturable: cleanText(value(row, headerMap.hitoFacturable)) || "No aplica",
+      consultor,
+      perfil: normalizeProfileName(value(row, headerMap.perfil)),
       horasEstimadas: horasEstimadas.value,
       horasRegistradas: horasRegistradas.value,
-      horasFacturables: horasFacturables.value,
       fechaInicio,
       fechaFin,
       raw: row
-    };
+    }));
   });
 
   if (invalidNumbers > 0) {
     warnings.push({ id: createId("warn"), severity: "warning", message: "Algunos valores de horas no eran numéricos y se convirtieron en 0.", count: invalidNumbers });
+  }
+  if (splitAssignments > 0) {
+    warnings.push({
+      id: createId("warn"),
+      severity: "info",
+      message: "Se separaron tareas con múltiples consultores. Cada consultor conserva las mismas horas de la tarea.",
+      count: splitAssignments
+    });
   }
 
   return { records, warnings };
@@ -177,6 +180,29 @@ function cleanText(value: unknown) {
 
 function normalizeText(value: unknown) {
   return cleanText(value) || "No definido";
+}
+
+function normalizeProfileName(value: unknown) {
+  const text = cleanText(value);
+  const normalized = normalizeHeader(text);
+  if (normalized === "semi senior" || normalized === "semisenior") return "Semi senior";
+  if (normalized === "arquitecto") return "Arquitecto";
+  if (normalized === "senior") return "Senior";
+  if (normalized === "gerencia") return "Gerencia";
+  if (normalized === "junior") return "Junior";
+  if (normalized === "lead") return "Lead";
+  return text || "No definido";
+}
+
+function splitConsultants(value: unknown) {
+  const raw = cleanText(value);
+  if (!raw) return ["No definido"];
+  const parts = raw
+    .split(/\s*(?:,|;|\n|\r)\s*/g)
+    .map((item) => cleanText(item))
+    .filter((item) => item && hasRealAssignee(item));
+  const unique = Array.from(new Set(parts));
+  return unique.length ? unique : ["No definido"];
 }
 
 function hasRealAssignee(value: string) {
@@ -279,10 +305,8 @@ function label(field: HeaderField) {
     proyecto: "Proyecto",
     consultor: "Consultor / Assignee",
     perfil: "Perfil / Rol",
-    hitoFacturable: "Hito facturable",
     horasEstimadas: "Time Estimate",
     horasRegistradas: "Time Logged",
-    horasFacturables: "Horas facturables",
     fechaInicio: "Fecha inicio",
     fechaFin: "Fecha fin / Due Date"
   };

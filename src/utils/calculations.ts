@@ -5,6 +5,8 @@ import {
   GeneralConsultantSummary,
   GeneralProjectSummary,
   NormalizedRecord,
+  ProjectEstimate,
+  SeniorityProfitabilitySummary,
   ServiceConsultantSummary,
   ServiceProjectSummary,
   TariffRate
@@ -17,46 +19,96 @@ export const emptyFilters: FilterState = {
   fechaFin: "",
   pais: "",
   cliente: "",
-  proyecto: "",
-  hitoFacturable: ""
+  proyecto: ""
 };
 
-export const defaultTariffs: TariffRate[] = [];
-
-function createTariff(pais: string, cliente: string, proyecto: string, perfil: string, tarifa: number, moneda: CurrencyCode): TariffRate {
-  return { id: createId("tariff"), pais, cliente, proyecto, perfil, tarifa, moneda, status: "Activo" };
-}
+export const defaultTariffs: TariffRate[] = [
+  { id: "tariff-junior", perfil: "Junior", tarifa: 45, moneda: "USD", status: "Activo" },
+  { id: "tariff-semi-senior", perfil: "Semi Senior", tarifa: 65, moneda: "USD", status: "Activo" },
+  { id: "tariff-senior", perfil: "Senior", tarifa: 90, moneda: "USD", status: "Activo" },
+  { id: "tariff-lead", perfil: "Lead", tarifa: 110, moneda: "USD", status: "Activo" },
+  { id: "tariff-architect", perfil: "Arquitecto", tarifa: 130, moneda: "USD", status: "Activo" }
+];
 
 export function sanitizeTariffs(rates: TariffRate[]) {
-  if (!Array.isArray(rates)) return defaultTariffs;
-  return rates.map((rate) => ({
-    ...rate,
-    id: rate.id || createId("tariff"),
-    pais: rate.pais || "No definido",
-    cliente: rate.cliente || "No definido",
-    proyecto: rate.proyecto || "No definido",
-    perfil: rate.perfil || "No definido",
-    tarifa: Number.isFinite(Number(rate.tarifa)) ? Number(rate.tarifa) : 0,
-    moneda: rate.moneda === "PEN" ? "PEN" : "USD",
-    status: rate.status === "Inactivo" ? "Inactivo" : "Activo"
-  }));
+  if (!Array.isArray(rates) || rates.length === 0) return defaultTariffs;
+  const byProfile = new Map<string, TariffRate>();
+  rates.forEach((rate) => {
+    const perfil = normalizeProfile(rate.perfil);
+    if (!perfil) return;
+    byProfile.set(normalize(perfil), {
+      id: rate.id || createId("tariff"),
+      perfil,
+      tarifa: Number.isFinite(Number(rate.tarifa)) ? Number(rate.tarifa) : 0,
+      moneda: rate.moneda === "PEN" ? "PEN" : "USD",
+      status: rate.status === "Inactivo" ? "Inactivo" : "Activo"
+    });
+  });
+  return Array.from(byProfile.values());
 }
 
-export function ensureTariffsForRecords(records: NormalizedRecord[], tariffs: TariffRate[]) {
+export function ensureTariffsForRecords(records: NormalizedRecord[], tariffs: TariffRate[], estimates: ProjectEstimate[] = []) {
   const current = sanitizeTariffs(tariffs);
-  const existing = new Set(current.map((rate) => tariffKey(rate.pais, rate.cliente, rate.proyecto, rate.perfil)));
+  const existing = new Set(current.map((rate) => normalize(rate.perfil)));
   const additions: TariffRate[] = [];
+  const perfiles = [
+    ...records.map((record) => record.perfil),
+    ...estimates.flatMap((estimate) => estimate.items.map((item) => item.perfil))
+  ];
 
-  unique(records.map((record) => JSON.stringify([record.pais, record.cliente, record.proyecto, record.perfil]))).forEach((encoded) => {
-    const [pais, cliente, proyecto, perfil] = JSON.parse(encoded) as string[];
-    const exact = tariffKey(pais, cliente, proyecto, perfil);
-    if (!existing.has(exact)) {
-      additions.push(createTariff(pais, cliente, proyecto, perfil, 0, "USD"));
-      existing.add(exact);
+  unique(perfiles).forEach((perfil) => {
+    if (!existing.has(normalize(perfil))) {
+      additions.push({ id: createId("tariff"), perfil, tarifa: 0, moneda: "USD", status: "Activo" });
+      existing.add(normalize(perfil));
     }
   });
 
   return [...current, ...additions];
+}
+
+export function buildEstimatesFromRecords(records: NormalizedRecord[], tariffs: TariffRate[], fileName: string): ProjectEstimate[] {
+  const rates = sanitizeTariffs(tariffs);
+  const projects = new Map<string, ProjectEstimate>();
+
+  records.forEach((record) => {
+    const key = projectKey(record.pais, record.cliente, record.proyecto);
+    const estimate = projects.get(key) ?? {
+      id: createId("estimate_import"),
+      version: "Estimacion",
+      pais: record.pais,
+      cliente: record.cliente,
+      proyecto: record.proyecto,
+      fechaInicio: record.fechaInicio || record.fechaFin || new Date().toISOString().slice(0, 10),
+      fechaFin: record.fechaFin || record.fechaInicio || new Date().toISOString().slice(0, 10),
+      estado: "Aprobada" as const,
+      createdAt: new Date().toISOString(),
+      items: []
+    };
+
+    if (record.fechaInicio && record.fechaInicio < estimate.fechaInicio) estimate.fechaInicio = record.fechaInicio;
+    if (record.fechaFin && record.fechaFin > estimate.fechaFin) estimate.fechaFin = record.fechaFin;
+
+    const perfil = record.perfil || "No definido";
+    const existing = estimate.items.find((item) => item.perfil === perfil && item.monthIndex === 1);
+    const tarifa = resolveTariff(perfil, rates)?.tarifa ?? 0;
+    if (existing) {
+      existing.horas += record.horasEstimadas;
+      if (!existing.tarifa) existing.tarifa = tarifa;
+    } else {
+      estimate.items.push({
+        id: createId("estimate_item"),
+        perfil,
+        monthIndex: 1,
+        horas: record.horasEstimadas,
+        tarifa
+      });
+    }
+
+    estimate.version = "Estimacion";
+    projects.set(key, estimate);
+  });
+
+  return Array.from(projects.values()).filter((estimate) => estimate.items.some((item) => item.horas > 0));
 }
 
 export function filterRecords(records: NormalizedRecord[], filters: FilterState) {
@@ -66,7 +118,6 @@ export function filterRecords(records: NormalizedRecord[], filters: FilterState)
     if (filters.pais && row.pais !== filters.pais) return false;
     if (filters.cliente && row.cliente !== filters.cliente) return false;
     if (filters.proyecto && row.proyecto !== filters.proyecto) return false;
-    if (filters.hitoFacturable && row.hitoFacturable !== filters.hitoFacturable) return false;
     return true;
   });
 }
@@ -74,29 +125,30 @@ export function filterRecords(records: NormalizedRecord[], filters: FilterState)
 export function getFilterOptions(records: NormalizedRecord[], filters: FilterState) {
   const byPais = filters.pais ? records.filter((row) => row.pais === filters.pais) : records;
   const byCliente = filters.cliente ? byPais.filter((row) => row.cliente === filters.cliente) : byPais;
-  const byProyecto = filters.proyecto ? byCliente.filter((row) => row.proyecto === filters.proyecto) : byCliente;
-
   return {
     paises: unique(records.map((row) => row.pais)),
     clientes: unique(byPais.map((row) => row.cliente)),
-    proyectos: unique(byCliente.map((row) => row.proyecto)),
-    hitos: unique(byProyecto.map((row) => row.hitoFacturable))
+    proyectos: unique(byCliente.map((row) => row.proyecto))
   };
 }
 
-export function buildComputedRows(records: NormalizedRecord[], tariffs: TariffRate[]): ComputedRecord[] {
+export function buildComputedRows(records: NormalizedRecord[], tariffs: TariffRate[], estimates: ProjectEstimate[]): ComputedRecord[] {
   const safeTariffs = sanitizeTariffs(tariffs).filter((rate) => rate.status === "Activo");
+  const estimateByProject = selectActiveEstimates(estimates);
+  const estimatedProfiles = buildEstimatedProfileIndex(estimates, safeTariffs);
 
   return records.map((row) => {
-    const tariff = resolveTariff(row, safeTariffs);
-    const tarifa = tariff?.tarifa ?? 0;
-    const moneda = tariff?.moneda ?? "USD";
+    const activeEstimate = estimateByProject.get(projectKey(row.pais, row.cliente, row.proyecto));
+    const estimatedProfile = estimatedProfiles.get(projectProfileKey(row.pais, row.cliente, row.proyecto, row.perfil, activeEstimate?.id ?? ""));
+    const horasEstimadas = row.horasEstimadas || estimatedProfile?.horas || 0;
+    const tarifa = estimatedProfile?.tarifa ?? resolveTariff(row.perfil, safeTariffs)?.tarifa ?? 0;
+    const moneda = resolveTariff(row.perfil, safeTariffs)?.moneda ?? "USD";
     const costoPorHora70 = tarifa * 0.7;
-    const ingresoEstimado = row.horasEstimadas * tarifa;
+    const ingresoEstimado = horasEstimadas * tarifa;
     const ingresoReal = row.horasRegistradas * tarifa;
-    const costoEstimado70 = row.horasEstimadas * costoPorHora70;
+    const costoEstimado70 = horasEstimadas * costoPorHora70;
     const costoEjecutado70 = row.horasRegistradas * costoPorHora70;
-    const progreso = safeDivide(row.horasRegistradas, row.horasEstimadas);
+    const progreso = safeDivide(row.horasRegistradas, horasEstimadas);
     const proyeccionCosto = progreso > 0 ? costoEjecutado70 / progreso : 0;
     const rentabilidadEstimada = safeDivide(ingresoEstimado - costoEstimado70, ingresoEstimado);
     const rentabilidadProyectada = safeDivide(ingresoEstimado - proyeccionCosto, ingresoEstimado);
@@ -104,6 +156,7 @@ export function buildComputedRows(records: NormalizedRecord[], tariffs: TariffRa
 
     return {
       ...row,
+      horasEstimadas: roundNumber(horasEstimadas, 2),
       tarifa: roundNumber(tarifa, 2),
       moneda,
       costoPorHora70: roundNumber(costoPorHora70, 2),
@@ -111,7 +164,6 @@ export function buildComputedRows(records: NormalizedRecord[], tariffs: TariffRa
       ingresoReal: roundNumber(ingresoReal, 2),
       costoEstimado70: roundNumber(costoEstimado70, 2),
       costoEjecutado70: roundNumber(costoEjecutado70, 2),
-      horasNoFacturables: roundNumber(row.horasRegistradas - row.horasFacturables, 2),
       progreso: roundNumber(progreso, 4),
       saldoDisponible70: roundNumber(costoEstimado70 - costoEjecutado70, 2),
       proyeccionCosto: roundNumber(proyeccionCosto, 2),
@@ -119,15 +171,11 @@ export function buildComputedRows(records: NormalizedRecord[], tariffs: TariffRa
       rentabilidadProyectada: roundNumber(rentabilidadProyectada, 4),
       desviacionPp: roundNumber(rentabilidadProyectada - rentabilidadEstimada, 4),
       margenGenerado: roundNumber(margenGenerado, 2),
-      tieneTarifa: tarifa > 0
+      tieneTarifa: tarifa > 0,
+      estimacionId: activeEstimate?.id ?? "",
+      estimacionVersion: activeEstimate?.version ?? "Sin estimacion"
     };
   });
-}
-
-function resolveTariff(row: NormalizedRecord, tariffs: TariffRate[]) {
-  return tariffs.find(
-    (rate) => eq(rate.pais, row.pais) && eq(rate.cliente, row.cliente) && eq(rate.proyecto, row.proyecto) && eq(rate.perfil, row.perfil)
-  ) ?? null;
 }
 
 export function buildServiceProjectSummary(rows: ComputedRecord[]): ServiceProjectSummary[] {
@@ -139,11 +187,10 @@ export function buildServiceProjectSummary(rows: ComputedRecord[]): ServiceProje
       pais: row.pais,
       cliente: row.cliente,
       proyecto: row.proyecto,
+      estimacionVersion: row.estimacionVersion,
       moneda: row.moneda,
       horasEstimadas: 0,
       horasRegistradas: 0,
-      horasFacturables: 0,
-      horasNoFacturables: 0,
       progreso: 0,
       costoEstimado70: 0,
       costoEjecutado70: 0,
@@ -151,8 +198,6 @@ export function buildServiceProjectSummary(rows: ComputedRecord[]): ServiceProje
     };
     current.horasEstimadas += row.horasEstimadas;
     current.horasRegistradas += row.horasRegistradas;
-    current.horasFacturables += row.horasFacturables;
-    current.horasNoFacturables += row.horasNoFacturables;
     current.costoEstimado70 += row.costoEstimado70;
     current.costoEjecutado70 += row.costoEjecutado70;
     groups.set(key, current);
@@ -176,10 +221,10 @@ export function buildServiceConsultantSummary(rows: ComputedRecord[]): ServiceCo
       cliente: row.cliente,
       proyecto: row.proyecto,
       perfil: row.perfil,
+      estimacionVersion: row.estimacionVersion,
       moneda: row.moneda,
       horasEstimadas: 0,
       horasRegistradas: 0,
-      horasFacturables: 0,
       tarifa: 0,
       costoPorHora70: 0,
       costoEjecutado70: 0,
@@ -189,7 +234,6 @@ export function buildServiceConsultantSummary(rows: ComputedRecord[]): ServiceCo
     };
     current.horasEstimadas += row.horasEstimadas;
     current.horasRegistradas += row.horasRegistradas;
-    current.horasFacturables += row.horasFacturables;
     current.costoEjecutado70 += row.costoEjecutado70;
     current.tarifaTotal += row.tarifa;
     current.tarifaCount += 1;
@@ -202,7 +246,6 @@ export function buildServiceConsultantSummary(rows: ComputedRecord[]): ServiceCo
       ...row,
       horasEstimadas: roundNumber(row.horasEstimadas, 2),
       horasRegistradas: roundNumber(row.horasRegistradas, 2),
-      horasFacturables: roundNumber(row.horasFacturables, 2),
       tarifa: roundNumber(tarifa, 2),
       costoPorHora70: roundNumber(tarifa * 0.7, 2),
       costoEjecutado70: roundNumber(row.costoEjecutado70, 2),
@@ -220,7 +263,9 @@ export function buildGeneralProjectSummary(rows: ComputedRecord[]): GeneralProje
       pais: row.pais,
       cliente: row.cliente,
       proyecto: row.proyecto,
+      estimacionVersion: row.estimacionVersion,
       moneda: row.moneda,
+      progreso: 0,
       ingresoEstimado: 0,
       ingresoReal: 0,
       costoEstimado70: 0,
@@ -244,6 +289,7 @@ export function buildGeneralProjectSummary(rows: ComputedRecord[]): GeneralProje
     const rentabilidadProyectada = safeDivide(row.ingresoEstimado - proyeccionCosto, row.ingresoEstimado);
     return {
       ...row,
+      progreso: roundNumber(progreso, 4),
       ingresoEstimado: roundNumber(row.ingresoEstimado, 2),
       ingresoReal: roundNumber(row.ingresoReal, 2),
       costoEstimado70: roundNumber(row.costoEstimado70, 2),
@@ -300,17 +346,59 @@ export function buildGeneralConsultantSummary(rows: ComputedRecord[]): GeneralCo
   });
 }
 
+export function buildSeniorityProfitability(rows: ComputedRecord[]): SeniorityProfitabilitySummary[] {
+  const groups = new Map<string, SeniorityProfitabilitySummary>();
+  rows.forEach((row) => {
+    const key = row.perfil;
+    const current = groups.get(key) ?? {
+      id: key,
+      perfil: row.perfil,
+      moneda: row.moneda,
+      horasEstimadas: 0,
+      horasRegistradas: 0,
+      ingresoEstimado: 0,
+      ingresoReal: 0,
+      costoEstimado70: 0,
+      costoEjecutado70: 0,
+      margenEstimado: 0,
+      margenReal: 0,
+      desviacionMargen: 0
+    };
+    current.horasEstimadas += row.horasEstimadas;
+    current.horasRegistradas += row.horasRegistradas;
+    current.ingresoEstimado += row.ingresoEstimado;
+    current.ingresoReal += row.ingresoReal;
+    current.costoEstimado70 += row.costoEstimado70;
+    current.costoEjecutado70 += row.costoEjecutado70;
+    groups.set(key, current);
+  });
+
+  return Array.from(groups.values()).map((row) => {
+    const margenEstimado = row.ingresoEstimado - row.costoEstimado70;
+    const margenReal = row.ingresoReal - row.costoEjecutado70;
+    return {
+      ...row,
+      horasEstimadas: roundNumber(row.horasEstimadas, 2),
+      horasRegistradas: roundNumber(row.horasRegistradas, 2),
+      ingresoEstimado: roundNumber(row.ingresoEstimado, 2),
+      ingresoReal: roundNumber(row.ingresoReal, 2),
+      costoEstimado70: roundNumber(row.costoEstimado70, 2),
+      costoEjecutado70: roundNumber(row.costoEjecutado70, 2),
+      margenEstimado: roundNumber(margenEstimado, 2),
+      margenReal: roundNumber(margenReal, 2),
+      desviacionMargen: roundNumber(margenReal - margenEstimado, 2)
+    };
+  });
+}
+
 export function serviceTotals(rows: ComputedRecord[]) {
   const horasEstimadas = sum(rows, "horasEstimadas");
   const horasRegistradas = sum(rows, "horasRegistradas");
-  const horasFacturables = sum(rows, "horasFacturables");
   const costoEstimado70 = sum(rows, "costoEstimado70");
   const costoEjecutado70 = sum(rows, "costoEjecutado70");
   return {
     horasEstimadas,
     horasRegistradas,
-    horasFacturables,
-    horasNoFacturables: roundNumber(horasRegistradas - horasFacturables, 2),
     progreso: roundNumber(safeDivide(horasRegistradas, horasEstimadas), 4),
     costoEstimado70,
     costoEjecutado70,
@@ -336,11 +424,81 @@ export function generalTotals(rows: ComputedRecord[]) {
     costoEstimado70,
     costoEjecutado70,
     rentabilidadEstimada: roundNumber(rentabilidadEstimada, 4),
+    progreso: roundNumber(progreso, 4),
     proyeccionCosto: roundNumber(proyeccionCosto, 2),
     rentabilidadProyectada: roundNumber(rentabilidadProyectada, 4),
     desviacionPp: roundNumber(rentabilidadProyectada - rentabilidadEstimada, 4),
     moneda: rows[0]?.moneda ?? "USD"
   };
+}
+
+export function estimateTotals(estimate: ProjectEstimate, tariffs: TariffRate[]) {
+  const rates = sanitizeTariffs(tariffs);
+  const totalHoras = estimate.items.reduce((sum, item) => sum + item.horas, 0);
+  const ingresoEstimado = estimate.items.reduce((sum, item) => sum + item.horas * estimateItemTariff(item.tarifa, item.perfil, rates), 0);
+  const costoEstimado70 = ingresoEstimado * 0.7;
+  return {
+    totalHoras: roundNumber(totalHoras, 2),
+    ingresoEstimado: roundNumber(ingresoEstimado, 2),
+    costoEstimado70: roundNumber(costoEstimado70, 2),
+    rentabilidadEstimada: roundNumber(safeDivide(ingresoEstimado - costoEstimado70, ingresoEstimado), 4),
+    moneda: rates[0]?.moneda ?? "USD"
+  };
+}
+
+export function estimateProfiles(estimate: ProjectEstimate, tariffs: TariffRate[]) {
+  const groups = new Map<string, { perfil: string; horas: number; tarifa: number; moneda: CurrencyCode }>();
+  const rates = sanitizeTariffs(tariffs);
+  estimate.items.forEach((item) => {
+    const rate = resolveTariff(item.perfil, rates);
+    const current = groups.get(item.perfil) ?? { perfil: item.perfil, horas: 0, tarifa: estimateItemTariff(item.tarifa, item.perfil, rates), moneda: rate?.moneda ?? "USD" };
+    current.horas += item.horas;
+    current.tarifa = estimateItemTariff(item.tarifa, item.perfil, rates);
+    groups.set(item.perfil, current);
+  });
+  return Array.from(groups.values()).map((row) => ({
+    ...row,
+    horas: roundNumber(row.horas, 2),
+    ingreso: roundNumber(row.horas * row.tarifa, 2),
+    costoHora70: roundNumber(row.tarifa * 0.7, 2),
+    costo70: roundNumber(row.horas * row.tarifa * 0.7, 2)
+  }));
+}
+
+function selectActiveEstimates(estimates: ProjectEstimate[]) {
+  const groups = new Map<string, ProjectEstimate>();
+  estimates
+    .filter((estimate) => estimate.estado !== "Archivada")
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    .forEach((estimate) => {
+      groups.set(projectKey(estimate.pais, estimate.cliente, estimate.proyecto), estimate);
+    });
+  return groups;
+}
+
+function buildEstimatedProfileIndex(estimates: ProjectEstimate[], tariffs: TariffRate[]) {
+  const active = selectActiveEstimates(estimates);
+  const index = new Map<string, { horas: number; tarifa: number }>();
+  active.forEach((estimate) => {
+    estimate.items.forEach((item) => {
+      const key = projectProfileKey(estimate.pais, estimate.cliente, estimate.proyecto, item.perfil, estimate.id);
+      const current = index.get(key) ?? { horas: 0, tarifa: estimateItemTariff(item.tarifa, item.perfil, tariffs) };
+      current.horas += item.horas;
+      current.tarifa = estimateItemTariff(item.tarifa, item.perfil, tariffs);
+      index.set(key, current);
+    });
+  });
+  return index;
+}
+
+function estimateItemTariff(tarifa: number | undefined, perfil: string, tariffs: TariffRate[]) {
+  const value = Number(tarifa);
+  if (Number.isFinite(value) && value > 0) return value;
+  return resolveTariff(perfil, tariffs)?.tarifa ?? 0;
+}
+
+function resolveTariff(perfil: string, tariffs: TariffRate[]) {
+  return tariffs.find((rate) => eq(rate.perfil, perfil)) ?? null;
 }
 
 function sum<T extends Record<string, unknown>>(rows: T[], key: keyof T) {
@@ -363,22 +521,27 @@ function roundServiceProject(row: ServiceProjectSummary): ServiceProjectSummary 
     ...row,
     horasEstimadas: roundNumber(row.horasEstimadas, 2),
     horasRegistradas: roundNumber(row.horasRegistradas, 2),
-    horasFacturables: roundNumber(row.horasFacturables, 2),
-    horasNoFacturables: roundNumber(row.horasNoFacturables, 2),
     costoEstimado70: roundNumber(row.costoEstimado70, 2),
     costoEjecutado70: roundNumber(row.costoEjecutado70, 2),
     saldoDisponible70: roundNumber(row.saldoDisponible70, 2)
   };
 }
 
-function tariffKey(pais: string, cliente: string, proyecto: string, perfil: string) {
-  return [pais, cliente, proyecto, perfil].map(normalize).join("__");
+function projectKey(pais: string, cliente: string, proyecto: string) {
+  return [pais, cliente, proyecto].map(normalize).join("__");
+}
+
+function projectProfileKey(pais: string, cliente: string, proyecto: string, perfil: string, estimateId: string) {
+  return [pais, cliente, proyecto, perfil, estimateId].map(normalize).join("__");
 }
 
 function eq(a: string, b: string) {
   return normalize(a) === normalize(b);
 }
 
+function normalizeProfile(value: string) {
+  return String(value ?? "").replace(/\s+/g, " ").trim() || "No definido";
+}
 
 function normalize(value: string) {
   return String(value ?? "")
