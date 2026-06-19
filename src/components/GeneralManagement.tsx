@@ -1,6 +1,6 @@
 import { BarChart3, DollarSign, Gauge, Landmark, Percent, TrendingUp } from "lucide-react";
-import { ComputedRecord, FilterState, GeneralProjectSummary, NormalizedRecord, ProjectEstimate, TariffRate } from "../types";
-import { buildComputedRows, buildGeneralProjectSummary, filterRecords, generalTotals } from "../utils/calculations";
+import { ComputedRecord, FilterState, NormalizedRecord, ProjectEstimate, TariffRate } from "../types";
+import { buildComputedRows, filterRecords, generalTotals } from "../utils/calculations";
 import { createExportSheet, exportSheetsToExcel } from "../utils/excel";
 import { formatHours, formatMoney, formatPercent, formatPp } from "../utils/format";
 import { Column, DataTable } from "./DataTable";
@@ -22,10 +22,11 @@ export function GeneralManagement({
 }) {
   const filtered = filterRecords(records, filters);
   const computed = buildComputedRows(filtered, tariffs, estimates);
-  const summary = buildGeneralProjectSummary(computed);
   const total = generalTotals(computed);
+  const monthKeys = getMonthKeys(computed);
   const theoretical = buildTheoreticalRows(computed);
   const executed = buildExecutedRows(computed);
+  const profitabilityByMonth = buildProfitabilityByMonth(computed);
 
   const theoreticalColumns: Column<FinancialTheoryRow>[] = [
     { id: "perfil", header: "Perfil", value: (row) => row.perfil },
@@ -40,6 +41,14 @@ export function GeneralManagement({
     { id: "perfil", header: "Perfil", value: (row) => row.perfil },
     { id: "consultor", header: "Colaborador", value: (row) => row.consultor },
     { id: "proyecto", header: "Proyecto", value: (row) => row.proyecto },
+    ...monthKeys.map((monthKey): Column<FinancialExecutedRow> => ({
+      id: `month_${monthKey}`,
+      header: monthLabel(monthKey),
+      value: (row) => row.months[monthKey] ?? 0,
+      render: (row) => formatHours(row.months[monthKey] ?? 0),
+      total: true,
+      totalRender: (rows) => formatHours(rows.reduce((acc, row) => acc + (row.months[monthKey] ?? 0), 0))
+    })),
     { id: "horas", header: "Total horas", value: (row) => row.horas, total: true, totalRender: (rows) => formatHours(sum(rows, "horas")) },
     { id: "tarifa", header: "Tarifa", value: (row) => row.tarifa, render: (row) => formatMoney(row.tarifa, row.moneda) },
     { id: "ingreso", header: "Ingreso", value: (row) => row.ingreso, render: (row) => formatMoney(row.ingreso, row.moneda), total: true, totalRender: (rows) => formatMoney(sum(rows, "ingreso"), total.moneda) },
@@ -47,15 +56,15 @@ export function GeneralManagement({
     { id: "costo", header: "Costo", value: (row) => row.costo, render: (row) => formatMoney(row.costo, row.moneda), total: true, totalRender: (rows) => formatMoney(sum(rows, "costo"), total.moneda) }
   ];
 
-  const summaryColumns: Column<GeneralProjectSummary>[] = [
+  const profitabilityColumns: Column<ProjectMonthlyProfitabilityRow>[] = [
     { id: "pais", header: "Pais", value: (row) => row.pais },
     { id: "cliente", header: "Cliente", value: (row) => row.cliente },
     { id: "proyecto", header: "Proyecto", value: (row) => row.proyecto },
-    { id: "estimacionVersion", header: "Estimacion", value: (row) => row.estimacionVersion },
+    { id: "mes", header: "Mes", value: (row) => row.mes },
     { id: "ingresoEstimado", header: "Ingreso estimado", value: (row) => row.ingresoEstimado, render: (row) => formatMoney(row.ingresoEstimado, row.moneda), total: true, totalRender: (rows) => formatMoney(sum(rows, "ingresoEstimado"), total.moneda) },
-    { id: "ingresoReal", header: "Ingreso real", value: (row) => row.ingresoReal, render: (row) => formatMoney(row.ingresoReal, row.moneda), total: true, totalRender: (rows) => formatMoney(sum(rows, "ingresoReal"), total.moneda) },
+    { id: "ingresoReal", header: "Ingreso ejecutado", value: (row) => row.ingresoReal, render: (row) => formatMoney(row.ingresoReal, row.moneda), total: true, totalRender: (rows) => formatMoney(sum(rows, "ingresoReal"), total.moneda) },
     { id: "costoEstimado70", header: "Costo estimado 70%", value: (row) => row.costoEstimado70, render: (row) => formatMoney(row.costoEstimado70, row.moneda), total: true, totalRender: (rows) => formatMoney(sum(rows, "costoEstimado70"), total.moneda) },
-    { id: "costoEjecutado70", header: "Costo real 70%", value: (row) => row.costoEjecutado70, render: (row) => formatMoney(row.costoEjecutado70, row.moneda), total: true, totalRender: (rows) => formatMoney(sum(rows, "costoEjecutado70"), total.moneda) },
+    { id: "costoEjecutado70", header: "Costo ejecutado 70%", value: (row) => row.costoEjecutado70, render: (row) => formatMoney(row.costoEjecutado70, row.moneda), total: true, totalRender: (rows) => formatMoney(sum(rows, "costoEjecutado70"), total.moneda) },
     { id: "progreso", header: "Progreso", value: (row) => row.progreso, render: (row) => formatPercent(row.progreso) },
     { id: "proyeccionCosto", header: "Proyeccion costo", value: (row) => row.proyeccionCosto, render: (row) => formatMoney(row.proyeccionCosto, row.moneda), total: true, totalRender: (rows) => formatMoney(sum(rows, "proyeccionCosto"), total.moneda) },
     { id: "rentabilidadEstimada", header: "Rent. estimada", value: (row) => row.rentabilidadEstimada, render: (row) => formatPercent(row.rentabilidadEstimada) },
@@ -76,9 +85,9 @@ export function GeneralManagement({
   const exportTab = () =>
     exportSheetsToExcel(
       [
-        createExportSheet("Rentabilidad proyecto", summary, summaryColumns),
         createExportSheet("Estimado teorico", theoretical, theoreticalColumns),
         createExportSheet("Ejecutado", executed, executedColumns),
+        createExportSheet("Rentabilidad proyecto mes", profitabilityByMonth, profitabilityColumns),
         createExportSheet("Detalle tareas", computed, detailColumns)
       ],
       "gerencia_general"
@@ -106,7 +115,7 @@ export function GeneralManagement({
       </div>
       <DataTable title="Estimado / Teorico" rows={theoretical} columns={theoreticalColumns} fileName="estimado_teorico" />
       <DataTable title="Ejecutado" rows={executed} columns={executedColumns} fileName="ejecutado" />
-      <DataTable title="Rentabilidad por proyecto" rows={summary} columns={summaryColumns} fileName="rentabilidad_proyecto" />
+      <DataTable title="Rentabilidad por proyecto y mes" rows={profitabilityByMonth} columns={profitabilityColumns} fileName="rentabilidad_proyecto_mes" />
       <div className="rounded-2xl bg-slate-50 p-4 text-xs font-semibold text-slate-600">
         Tarifa unica por perfil = 100% | Costo por hora = tarifa x 0.70 | Margen base = tarifa x 0.30.
       </div>
@@ -132,6 +141,27 @@ type FinancialTheoryRow = {
 type FinancialExecutedRow = FinancialTheoryRow & {
   consultor: string;
   proyecto: string;
+  months: Record<string, number>;
+};
+
+type ProjectMonthlyProfitabilityRow = {
+  id: string;
+  pais: string;
+  cliente: string;
+  proyecto: string;
+  mes: string;
+  moneda: ComputedRecord["moneda"];
+  horasEstimadas: number;
+  horasRegistradas: number;
+  ingresoEstimado: number;
+  ingresoReal: number;
+  costoEstimado70: number;
+  costoEjecutado70: number;
+  progreso: number;
+  proyeccionCosto: number;
+  rentabilidadEstimada: number;
+  rentabilidadProyectada: number;
+  desviacionPp: number;
 };
 
 function buildTheoreticalRows(rows: ComputedRecord[]): FinancialTheoryRow[] {
@@ -169,8 +199,11 @@ function buildExecutedRows(rows: ComputedRecord[]): FinancialExecutedRow[] {
       tarifa: row.tarifa,
       ingreso: 0,
       costoHora: row.costoPorHora70,
-      costo: 0
+      costo: 0,
+      months: {}
     };
+    const monthKey = rowMonthKey(row);
+    current.months[monthKey] = (current.months[monthKey] ?? 0) + row.horasRegistradas;
     current.horas += row.horasRegistradas;
     current.ingreso += row.ingresoReal;
     current.costo += row.costoEjecutado70;
@@ -188,4 +221,85 @@ function roundFinancialRow<T extends FinancialTheoryRow>(row: T): T {
     costoHora: Number(row.costoHora.toFixed(2)),
     costo: Number(row.costo.toFixed(2))
   };
+}
+
+function buildProfitabilityByMonth(rows: ComputedRecord[]): ProjectMonthlyProfitabilityRow[] {
+  const groups = new Map<string, ProjectMonthlyProfitabilityRow>();
+  rows.forEach((row) => {
+    const monthKey = rowMonthKey(row);
+    const key = [row.pais, row.cliente, row.proyecto, monthKey].join("__");
+    const current = groups.get(key) ?? {
+      id: key,
+      pais: row.pais,
+      cliente: row.cliente,
+      proyecto: row.proyecto,
+      mes: monthLabel(monthKey),
+      moneda: row.moneda,
+      horasEstimadas: 0,
+      horasRegistradas: 0,
+      ingresoEstimado: 0,
+      ingresoReal: 0,
+      costoEstimado70: 0,
+      costoEjecutado70: 0,
+      progreso: 0,
+      proyeccionCosto: 0,
+      rentabilidadEstimada: 0,
+      rentabilidadProyectada: 0,
+      desviacionPp: 0
+    };
+    current.horasEstimadas += row.horasEstimadas;
+    current.horasRegistradas += row.horasRegistradas;
+    current.ingresoEstimado += row.ingresoEstimado;
+    current.ingresoReal += row.ingresoReal;
+    current.costoEstimado70 += row.costoEstimado70;
+    current.costoEjecutado70 += row.costoEjecutado70;
+    groups.set(key, current);
+  });
+
+  return Array.from(groups.values())
+    .map((row) => {
+      const progreso = safeDivide(row.horasRegistradas, row.horasEstimadas);
+      const proyeccionCosto = progreso > 0 ? row.costoEjecutado70 / progreso : 0;
+      const rentabilidadEstimada = safeDivide(row.ingresoEstimado - row.costoEstimado70, row.ingresoEstimado);
+      const rentabilidadProyectada = safeDivide(row.ingresoEstimado - proyeccionCosto, row.ingresoEstimado);
+      return {
+        ...row,
+        horasEstimadas: round(row.horasEstimadas),
+        horasRegistradas: round(row.horasRegistradas),
+        ingresoEstimado: round(row.ingresoEstimado),
+        ingresoReal: round(row.ingresoReal),
+        costoEstimado70: round(row.costoEstimado70),
+        costoEjecutado70: round(row.costoEjecutado70),
+        progreso: round(progreso, 4),
+        proyeccionCosto: round(proyeccionCosto),
+        rentabilidadEstimada: round(rentabilidadEstimada, 4),
+        rentabilidadProyectada: round(rentabilidadProyectada, 4),
+        desviacionPp: round(rentabilidadProyectada - rentabilidadEstimada, 4)
+      };
+    })
+    .sort((a, b) => [a.pais, a.cliente, a.proyecto, a.mes].join("__").localeCompare([b.pais, b.cliente, b.proyecto, b.mes].join("__"), "es"));
+}
+
+function getMonthKeys(rows: ComputedRecord[]) {
+  return Array.from(new Set(rows.map(rowMonthKey))).sort();
+}
+
+function rowMonthKey(row: ComputedRecord) {
+  const date = row.fechaFin || row.fechaInicio || "";
+  return /^\d{4}-\d{2}/.test(date) ? date.slice(0, 7) : "Sin fecha";
+}
+
+function monthLabel(monthKey: string) {
+  if (monthKey === "Sin fecha") return monthKey;
+  const [year, month] = monthKey.split("-");
+  return `${month}/${year}`;
+}
+
+function safeDivide(numerator: number, denominator: number) {
+  if (!denominator || !Number.isFinite(numerator) || !Number.isFinite(denominator)) return 0;
+  return numerator / denominator;
+}
+
+function round(value: number, decimals = 2) {
+  return Number(value.toFixed(decimals));
 }
