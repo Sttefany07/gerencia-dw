@@ -75,6 +75,7 @@ export function GeneralManagement({
     { id: "ingresoReal", header: "Ingreso ejecutado", value: (row) => row.ingresoReal, render: (row) => formatMoney(row.ingresoReal, row.moneda), total: true, totalRender: (rows) => formatMoney(sum(rows, "ingresoReal"), total.moneda) },
     { id: "costoEstimado70", header: "Costo estimado 70%", value: (row) => row.costoEstimado70, render: (row) => formatMoney(row.costoEstimado70, row.moneda), total: true, totalRender: (rows) => formatMoney(sum(rows, "costoEstimado70"), total.moneda) },
     { id: "costoEjecutado70", header: "Costo ejecutado 70%", value: (row) => row.costoEjecutado70, render: (row) => formatMoney(row.costoEjecutado70, row.moneda), total: true, totalRender: (rows) => formatMoney(sum(rows, "costoEjecutado70"), total.moneda) },
+    { id: "saldo", header: "Saldo", value: (row) => row.saldo, render: (row) => formatMoney(row.saldo, row.moneda), total: true, totalRender: (rows) => formatMoney(sum(rows, "saldo"), total.moneda) },
     { id: "progreso", header: "Progreso", value: (row) => row.progreso, render: (row) => formatPercent(row.progreso) },
     { id: "proyeccionCosto", header: "Proyeccion costo", value: (row) => row.proyeccionCosto, render: (row) => formatMoney(row.proyeccionCosto, row.moneda), total: true, totalRender: (rows) => formatMoney(sum(rows, "proyeccionCosto"), total.moneda) },
     { id: "rentabilidadEstimada", header: "Rent. estimada", value: (row) => row.rentabilidadEstimada, render: (row) => formatPercent(row.rentabilidadEstimada) },
@@ -118,6 +119,7 @@ export function GeneralManagement({
         <MetricCard icon={Landmark} label="Ingreso real" value={formatMoney(total.ingresoReal, total.moneda)} />
         <MetricCard icon={DollarSign} label="Costo estimado 70%" value={formatMoney(total.costoEstimado70, total.moneda)} />
         <MetricCard icon={DollarSign} label="Costo real 70%" value={formatMoney(total.costoEjecutado70, total.moneda)} />
+        <MetricCard icon={DollarSign} label="Saldo" value={formatMoney(total.saldo, total.moneda)} helper="Costo estimado - costo ejecutado" />
         <MetricCard icon={Gauge} label="Progreso" value={formatPercent(total.progreso)} />
         <MetricCard icon={TrendingUp} label="Rentabilidad estimada" value={formatPercent(total.rentabilidadEstimada)} />
         <MetricCard icon={BarChart3} label="Rentabilidad proyectada" value={formatPercent(total.rentabilidadProyectada)} />
@@ -170,6 +172,7 @@ type ProjectMonthlyProfitabilityRow = {
   ingresoReal: number;
   costoEstimado70: number;
   costoEjecutado70: number;
+  saldo: number;
   progreso: number;
   proyeccionCosto: number;
   rentabilidadEstimada: number;
@@ -298,6 +301,7 @@ function buildProfitabilityByMonth(estimates: ProjectEstimate[], rows: ComputedR
         ingresoReal: round(row.ingresoReal),
         costoEstimado70: round(row.costoEstimado70),
         costoEjecutado70: round(row.costoEjecutado70),
+        saldo: round(row.costoEstimado70 - row.costoEjecutado70),
         progreso: round(progreso, 4),
         proyeccionCosto: round(proyeccionCosto),
         rentabilidadEstimada: round(rentabilidadEstimada, 4),
@@ -330,6 +334,7 @@ function createProfitabilityRow(
     ingresoReal: 0,
     costoEstimado70: 0,
     costoEjecutado70: 0,
+    saldo: 0,
     progreso: 0,
     proyeccionCosto: 0,
     rentabilidadEstimada: 0,
@@ -345,6 +350,7 @@ function buildGeneralTotals(theoretical: FinancialTheoryRow[], executed: Compute
   const ingresoReal = sum(executed, "ingresoReal");
   const costoEstimado70 = sum(theoretical, "costo");
   const costoEjecutado70 = sum(executed, "costoEjecutado70");
+  const saldo = costoEstimado70 - costoEjecutado70;
   const horasEstimadas = sum(theoretical, "horas");
   const horasRegistradas = sum(executed, "horasRegistradas");
   const progreso = executed.length ? executed.reduce((acc, row) => acc + row.progreso, 0) / executed.length : safeDivide(horasRegistradas, horasEstimadas);
@@ -356,6 +362,7 @@ function buildGeneralTotals(theoretical: FinancialTheoryRow[], executed: Compute
     ingresoReal: round(ingresoReal),
     costoEstimado70: round(costoEstimado70),
     costoEjecutado70: round(costoEjecutado70),
+    saldo: round(saldo),
     rentabilidadEstimada: round(rentabilidadEstimada, 4),
     progreso: round(progreso, 4),
     proyeccionCosto: round(proyeccionCosto),
