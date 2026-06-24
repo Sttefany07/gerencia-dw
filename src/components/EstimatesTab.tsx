@@ -119,7 +119,12 @@ export function EstimatesTab({
 
   const saveEstimate = () => {
     if (!selected) return;
-    onEstimatesChange(normalizedEstimates.map((estimate) => (estimate.id === selected.id ? selected : estimate)));
+    const saved: ProjectEstimate = {
+      ...selected,
+      estado: "Aprobada",
+      createdAt: new Date().toISOString()
+    };
+    onEstimatesChange(normalizedEstimates.map((estimate) => (estimate.id === selected.id ? saved : estimate)));
     setSaveStatus("Guardado");
     window.setTimeout(() => setSaveStatus(""), 1800);
   };
