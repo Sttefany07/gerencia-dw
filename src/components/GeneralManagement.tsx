@@ -1,6 +1,6 @@
 import { BarChart3, DollarSign, Gauge, Landmark, Percent, TrendingUp } from "lucide-react";
 import { ComputedRecord, FilterState, NormalizedRecord, ProjectEstimate, TariffRate } from "../types";
-import { buildComputedRows, filterRecords, generalTotals } from "../utils/calculations";
+import { buildComputedRows, filterRecords } from "../utils/calculations";
 import { createExportSheet, exportSheetsToExcel } from "../utils/excel";
 import { formatHours, formatMoney, formatPercent, formatPp } from "../utils/format";
 import { Column, DataTable } from "./DataTable";
@@ -22,14 +22,16 @@ export function GeneralManagement({
 }) {
   const filtered = filterRecords(records, filters);
   const computed = buildComputedRows(filtered, tariffs, estimates);
-  const total = generalTotals(computed);
-  const monthKeys = getMonthKeys(computed);
-  const theoretical = buildTheoreticalRows(computed);
+  const activeEstimates = selectVisibleEstimates(estimates, filters);
+  const monthKeys = uniqueSorted([...getEstimateMonthKeys(activeEstimates), ...getMonthKeys(computed)]);
+  const theoretical = buildTheoreticalRows(activeEstimates);
   const executed = buildExecutedRows(computed);
-  const profitabilityByMonth = buildProfitabilityByMonth(computed);
+  const total = buildGeneralTotals(theoretical, computed);
+  const profitabilityByMonth = buildProfitabilityByMonth(activeEstimates, computed, monthKeys);
 
   const theoreticalColumns: Column<FinancialTheoryRow>[] = [
     { id: "perfil", header: "Perfil", value: (row) => row.perfil },
+    { id: "proyecto", header: "Proyecto", value: (row) => row.proyecto },
     ...monthKeys.map((monthKey): Column<FinancialTheoryRow> => ({
       id: `month_${monthKey}`,
       header: monthLabel(monthKey),
@@ -138,6 +140,9 @@ function sum<T extends Record<string, unknown>>(rows: T[], key: keyof T) {
 type FinancialTheoryRow = {
   id: string;
   perfil: string;
+  pais: string;
+  cliente: string;
+  proyecto: string;
   moneda: ComputedRecord["moneda"];
   horas: number;
   tarifa: number;
@@ -149,7 +154,6 @@ type FinancialTheoryRow = {
 
 type FinancialExecutedRow = FinancialTheoryRow & {
   consultor: string;
-  proyecto: string;
   months: Record<string, number>;
 };
 
@@ -173,28 +177,41 @@ type ProjectMonthlyProfitabilityRow = {
   desviacionPp: number;
 };
 
-function buildTheoreticalRows(rows: ComputedRecord[]): FinancialTheoryRow[] {
+function buildTheoreticalRows(estimates: ProjectEstimate[]): FinancialTheoryRow[] {
   const groups = new Map<string, FinancialTheoryRow>();
-  rows.forEach((row) => {
-    const current = groups.get(row.perfil) ?? {
-      id: row.perfil,
-      perfil: row.perfil,
-      moneda: row.moneda,
-      horas: 0,
-      tarifa: row.tarifa,
-      ingreso: 0,
-      costoHora: row.costoPorHora70,
-      costo: 0,
-      months: {}
-    };
-    current.horas += row.horasEstimadas;
-    const monthKey = rowMonthKey(row);
-    current.months[monthKey] = (current.months[monthKey] ?? 0) + row.horasEstimadas;
-    current.ingreso += row.ingresoEstimado;
-    current.costo += row.costoEstimado70;
-    groups.set(row.perfil, current);
+  estimates.forEach((estimate) => {
+    estimate.items.forEach((item) => {
+      const groupId = item.groupId || `${item.perfil}-${item.id}`;
+      const key = [estimate.id, groupId].join("__");
+      const tarifa = Number(item.tarifa) || 0;
+      const current = groups.get(key) ?? {
+        id: key,
+        perfil: item.perfil,
+        pais: estimate.pais,
+        cliente: estimate.cliente,
+        proyecto: estimate.proyecto,
+        moneda: "USD" as const,
+        horas: 0,
+        tarifa,
+        ingreso: 0,
+        costoHora: tarifa * 0.7,
+        costo: 0,
+        months: {}
+      };
+      const monthKey = estimateMonthKey(estimate, item.monthIndex);
+      const horas = Number(item.horas) || 0;
+      current.horas += horas;
+      current.months[monthKey] = (current.months[monthKey] ?? 0) + horas;
+      current.tarifa = tarifa;
+      current.costoHora = tarifa * 0.7;
+      current.ingreso += horas * tarifa;
+      current.costo += horas * tarifa * 0.7;
+      groups.set(key, current);
+    });
   });
-  return Array.from(groups.values()).map(roundFinancialRow);
+  return Array.from(groups.values())
+    .map(roundFinancialRow)
+    .sort((a, b) => [a.pais, a.cliente, a.proyecto, a.perfil, a.id].join("__").localeCompare([b.pais, b.cliente, b.proyecto, b.perfil, b.id].join("__"), "es"));
 }
 
 function buildExecutedRows(rows: ComputedRecord[]): FinancialExecutedRow[] {
@@ -204,6 +221,8 @@ function buildExecutedRows(rows: ComputedRecord[]): FinancialExecutedRow[] {
     const current = groups.get(key) ?? {
       id: key,
       perfil: row.perfil,
+      pais: row.pais,
+      cliente: row.cliente,
       consultor: row.consultor,
       proyecto: row.proyecto,
       moneda: row.moneda,
@@ -235,37 +254,28 @@ function roundFinancialRow<T extends FinancialTheoryRow>(row: T): T {
   };
 }
 
-function buildProfitabilityByMonth(rows: ComputedRecord[]): ProjectMonthlyProfitabilityRow[] {
+function buildProfitabilityByMonth(estimates: ProjectEstimate[], rows: ComputedRecord[], monthKeys: string[]): ProjectMonthlyProfitabilityRow[] {
   const groups = new Map<string, ProjectMonthlyProfitabilityRow & { progressTotal: number; progressCount: number }>();
+  estimates.forEach((estimate) => {
+    estimate.items.forEach((item) => {
+      const monthKey = estimateMonthKey(estimate, item.monthIndex);
+      const key = [estimate.pais, estimate.cliente, estimate.proyecto, monthKey].join("__");
+      const current = groups.get(key) ?? createProfitabilityRow(key, estimate.pais, estimate.cliente, estimate.proyecto, monthKey, "USD");
+      const horas = Number(item.horas) || 0;
+      const tarifa = Number(item.tarifa) || 0;
+      current.horasEstimadas += horas;
+      current.ingresoEstimado += horas * tarifa;
+      current.costoEstimado70 += horas * tarifa * 0.7;
+      groups.set(key, current);
+    });
+  });
+
   rows.forEach((row) => {
     const monthKey = rowMonthKey(row);
     const key = [row.pais, row.cliente, row.proyecto, monthKey].join("__");
-    const current = groups.get(key) ?? {
-      id: key,
-      pais: row.pais,
-      cliente: row.cliente,
-      proyecto: row.proyecto,
-      mes: monthLabel(monthKey),
-      moneda: row.moneda,
-      horasEstimadas: 0,
-      horasRegistradas: 0,
-      ingresoEstimado: 0,
-      ingresoReal: 0,
-      costoEstimado70: 0,
-      costoEjecutado70: 0,
-      progreso: 0,
-      proyeccionCosto: 0,
-      rentabilidadEstimada: 0,
-      rentabilidadProyectada: 0,
-      desviacionPp: 0,
-      progressTotal: 0,
-      progressCount: 0
-    };
-    current.horasEstimadas += row.horasEstimadas;
+    const current = groups.get(key) ?? createProfitabilityRow(key, row.pais, row.cliente, row.proyecto, monthKey, row.moneda);
     current.horasRegistradas += row.horasRegistradas;
-    current.ingresoEstimado += row.ingresoEstimado;
     current.ingresoReal += row.ingresoReal;
-    current.costoEstimado70 += row.costoEstimado70;
     current.costoEjecutado70 += row.costoEjecutado70;
     current.progressTotal += row.progreso;
     current.progressCount += 1;
@@ -293,11 +303,105 @@ function buildProfitabilityByMonth(rows: ComputedRecord[]): ProjectMonthlyProfit
         desviacionPp: round(rentabilidadProyectada - rentabilidadEstimada, 4)
       };
     })
-    .sort((a, b) => [a.pais, a.cliente, a.proyecto, a.mes].join("__").localeCompare([b.pais, b.cliente, b.proyecto, b.mes].join("__"), "es"));
+    .filter((row) => !monthKeys.length || monthKeys.includes(labelToMonthKey(row.mes)))
+    .sort((a, b) => [a.pais, a.cliente, a.proyecto, labelToMonthKey(a.mes)].join("__").localeCompare([b.pais, b.cliente, b.proyecto, labelToMonthKey(b.mes)].join("__"), "es"));
+}
+
+function createProfitabilityRow(
+  id: string,
+  pais: string,
+  cliente: string,
+  proyecto: string,
+  monthKey: string,
+  moneda: ComputedRecord["moneda"]
+): ProjectMonthlyProfitabilityRow & { progressTotal: number; progressCount: number } {
+  return {
+    id,
+    pais,
+    cliente,
+    proyecto,
+    mes: monthLabel(monthKey),
+    moneda,
+    horasEstimadas: 0,
+    horasRegistradas: 0,
+    ingresoEstimado: 0,
+    ingresoReal: 0,
+    costoEstimado70: 0,
+    costoEjecutado70: 0,
+    progreso: 0,
+    proyeccionCosto: 0,
+    rentabilidadEstimada: 0,
+    rentabilidadProyectada: 0,
+    desviacionPp: 0,
+    progressTotal: 0,
+    progressCount: 0
+  };
+}
+
+function buildGeneralTotals(theoretical: FinancialTheoryRow[], executed: ComputedRecord[]) {
+  const ingresoEstimado = sum(theoretical, "ingreso");
+  const ingresoReal = sum(executed, "ingresoReal");
+  const costoEstimado70 = sum(theoretical, "costo");
+  const costoEjecutado70 = sum(executed, "costoEjecutado70");
+  const horasEstimadas = sum(theoretical, "horas");
+  const horasRegistradas = sum(executed, "horasRegistradas");
+  const progreso = executed.length ? executed.reduce((acc, row) => acc + row.progreso, 0) / executed.length : safeDivide(horasRegistradas, horasEstimadas);
+  const proyeccionCosto = progreso > 0 ? costoEjecutado70 / progreso : 0;
+  const rentabilidadEstimada = safeDivide(ingresoEstimado - costoEstimado70, ingresoEstimado);
+  const rentabilidadProyectada = safeDivide(ingresoEstimado - proyeccionCosto, ingresoEstimado);
+  return {
+    ingresoEstimado: round(ingresoEstimado),
+    ingresoReal: round(ingresoReal),
+    costoEstimado70: round(costoEstimado70),
+    costoEjecutado70: round(costoEjecutado70),
+    rentabilidadEstimada: round(rentabilidadEstimada, 4),
+    progreso: round(progreso, 4),
+    proyeccionCosto: round(proyeccionCosto),
+    rentabilidadProyectada: round(rentabilidadProyectada, 4),
+    desviacionPp: round(rentabilidadProyectada - rentabilidadEstimada, 4),
+    moneda: (theoretical[0]?.moneda ?? executed[0]?.moneda ?? "USD") as ComputedRecord["moneda"]
+  };
+}
+
+function selectVisibleEstimates(estimates: ProjectEstimate[], filters: FilterState) {
+  const groups = new Map<string, ProjectEstimate>();
+  estimates
+    .filter((estimate) => estimate.estado !== "Archivada")
+    .filter((estimate) => {
+      if (filters.fechaInicio && estimate.fechaFin && estimate.fechaFin < filters.fechaInicio) return false;
+      if (filters.fechaFin && estimate.fechaInicio && estimate.fechaInicio > filters.fechaFin) return false;
+      if (filters.pais && estimate.pais !== filters.pais) return false;
+      if (filters.cliente && estimate.cliente !== filters.cliente) return false;
+      if (filters.proyecto && estimate.proyecto !== filters.proyecto) return false;
+      return true;
+    })
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    .forEach((estimate) => {
+      groups.set([estimate.pais, estimate.cliente, estimate.proyecto].join("__"), estimate);
+    });
+  return Array.from(groups.values());
+}
+
+function getEstimateMonthKeys(estimates: ProjectEstimate[]) {
+  return estimates.flatMap((estimate) => estimate.items.map((item) => estimateMonthKey(estimate, item.monthIndex)));
+}
+
+function estimateMonthKey(estimate: ProjectEstimate, monthIndex: number) {
+  if (!estimate.fechaInicio || !/^\d{4}-\d{2}/.test(estimate.fechaInicio)) return `Mes ${monthIndex || 1}`;
+  const base = new Date(`${estimate.fechaInicio.slice(0, 7)}-01T00:00:00Z`);
+  if (Number.isNaN(base.getTime())) return `Mes ${monthIndex || 1}`;
+  base.setUTCMonth(base.getUTCMonth() + Math.max(1, monthIndex || 1) - 1);
+  const year = base.getUTCFullYear();
+  const month = String(base.getUTCMonth() + 1).padStart(2, "0");
+  return `${year}-${month}`;
 }
 
 function getMonthKeys(rows: ComputedRecord[]) {
   return Array.from(new Set(rows.map(rowMonthKey))).sort();
+}
+
+function uniqueSorted(values: string[]) {
+  return Array.from(new Set(values.filter(Boolean))).sort();
 }
 
 function rowMonthKey(row: ComputedRecord) {
@@ -307,8 +411,15 @@ function rowMonthKey(row: ComputedRecord) {
 
 function monthLabel(monthKey: string) {
   if (monthKey === "Sin fecha") return monthKey;
+  if (monthKey.startsWith("Mes ")) return monthKey;
   const [year, month] = monthKey.split("-");
   return `${month}/${year}`;
+}
+
+function labelToMonthKey(label: string) {
+  if (label === "Sin fecha" || label.startsWith("Mes ")) return label;
+  const [month, year] = label.split("/");
+  return year && month ? `${year}-${month}` : label;
 }
 
 function safeDivide(numerator: number, denominator: number) {
