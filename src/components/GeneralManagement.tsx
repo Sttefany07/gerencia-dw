@@ -30,6 +30,14 @@ export function GeneralManagement({
 
   const theoreticalColumns: Column<FinancialTheoryRow>[] = [
     { id: "perfil", header: "Perfil", value: (row) => row.perfil },
+    ...monthKeys.map((monthKey): Column<FinancialTheoryRow> => ({
+      id: `month_${monthKey}`,
+      header: monthLabel(monthKey),
+      value: (row) => row.months[monthKey] ?? 0,
+      render: (row) => formatHours(row.months[monthKey] ?? 0),
+      total: true,
+      totalRender: (rows) => formatHours(rows.reduce((acc, row) => acc + (row.months[monthKey] ?? 0), 0))
+    })),
     { id: "horas", header: "Total horas", value: (row) => row.horas, total: true, totalRender: (rows) => formatHours(sum(rows, "horas")) },
     { id: "tarifa", header: "Tarifa", value: (row) => row.tarifa, render: (row) => formatMoney(row.tarifa, row.moneda) },
     { id: "ingreso", header: "Ingreso proyectado", value: (row) => row.ingreso, render: (row) => formatMoney(row.ingreso, row.moneda), total: true, totalRender: (rows) => formatMoney(sum(rows, "ingreso"), total.moneda) },
@@ -136,6 +144,7 @@ type FinancialTheoryRow = {
   ingreso: number;
   costoHora: number;
   costo: number;
+  months: Record<string, number>;
 };
 
 type FinancialExecutedRow = FinancialTheoryRow & {
@@ -175,9 +184,12 @@ function buildTheoreticalRows(rows: ComputedRecord[]): FinancialTheoryRow[] {
       tarifa: row.tarifa,
       ingreso: 0,
       costoHora: row.costoPorHora70,
-      costo: 0
+      costo: 0,
+      months: {}
     };
     current.horas += row.horasEstimadas;
+    const monthKey = rowMonthKey(row);
+    current.months[monthKey] = (current.months[monthKey] ?? 0) + row.horasEstimadas;
     current.ingreso += row.ingresoEstimado;
     current.costo += row.costoEstimado70;
     groups.set(row.perfil, current);
@@ -224,7 +236,7 @@ function roundFinancialRow<T extends FinancialTheoryRow>(row: T): T {
 }
 
 function buildProfitabilityByMonth(rows: ComputedRecord[]): ProjectMonthlyProfitabilityRow[] {
-  const groups = new Map<string, ProjectMonthlyProfitabilityRow>();
+  const groups = new Map<string, ProjectMonthlyProfitabilityRow & { progressTotal: number; progressCount: number }>();
   rows.forEach((row) => {
     const monthKey = rowMonthKey(row);
     const key = [row.pais, row.cliente, row.proyecto, monthKey].join("__");
@@ -245,7 +257,9 @@ function buildProfitabilityByMonth(rows: ComputedRecord[]): ProjectMonthlyProfit
       proyeccionCosto: 0,
       rentabilidadEstimada: 0,
       rentabilidadProyectada: 0,
-      desviacionPp: 0
+      desviacionPp: 0,
+      progressTotal: 0,
+      progressCount: 0
     };
     current.horasEstimadas += row.horasEstimadas;
     current.horasRegistradas += row.horasRegistradas;
@@ -253,12 +267,14 @@ function buildProfitabilityByMonth(rows: ComputedRecord[]): ProjectMonthlyProfit
     current.ingresoReal += row.ingresoReal;
     current.costoEstimado70 += row.costoEstimado70;
     current.costoEjecutado70 += row.costoEjecutado70;
+    current.progressTotal += row.progreso;
+    current.progressCount += 1;
     groups.set(key, current);
   });
 
   return Array.from(groups.values())
     .map((row) => {
-      const progreso = safeDivide(row.horasRegistradas, row.horasEstimadas);
+      const progreso = row.progressCount ? row.progressTotal / row.progressCount : safeDivide(row.horasRegistradas, row.horasEstimadas);
       const proyeccionCosto = progreso > 0 ? row.costoEjecutado70 / progreso : 0;
       const rentabilidadEstimada = safeDivide(row.ingresoEstimado - row.costoEstimado70, row.ingresoEstimado);
       const rentabilidadProyectada = safeDivide(row.ingresoEstimado - proyeccionCosto, row.ingresoEstimado);

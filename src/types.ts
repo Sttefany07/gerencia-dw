@@ -21,6 +21,7 @@ export type NormalizedRecord = {
   perfil: string;
   horasEstimadas: number;
   horasRegistradas: number;
+  progreso: number;
   fechaInicio: string;
   fechaFin: string;
   raw?: Record<string, unknown>;

@@ -14,6 +14,7 @@ type HeaderField =
   | "perfil"
   | "horasEstimadas"
   | "horasRegistradas"
+  | "progreso"
   | "fechaInicio"
   | "fechaFin";
 
@@ -30,6 +31,7 @@ const aliases: Record<HeaderField, string[]> = {
   // IMPORTANTE: no incluir columnas Rolled Up. Solo horas propias de la fila/tarea.
   horasEstimadas: ["time estimate", "horas estimadas", "hh estimadas", "horas planificadas"],
   horasRegistradas: ["time logged", "horas registradas", "hh registradas", "horas ejecutadas", "horas reales"],
+  progreso: ["progreso", "progreso number", "progress", "avance"],
   fechaInicio: ["fecha inicio", "inicio", "start date", "fecha de inicio"],
   fechaFin: ["due date", "fecha fin", "fin", "end date", "fecha de fin"]
 };
@@ -58,6 +60,7 @@ export function normalizeExcelRows(rows: Record<string, unknown>[]) {
   }
 
   let invalidNumbers = 0;
+  const projectProgress = buildProjectProgress(rows, headerMap);
   let splitAssignments = 0;
   const records = selected.rows.flatMap((row, index): NormalizedRecord[] => {
     const horasEstimadas = parseNumber(value(row, headerMap.horasEstimadas));
@@ -69,19 +72,23 @@ export function normalizeExcelRows(rows: Record<string, unknown>[]) {
     const fechaInicio = parseDateToIso(value(row, headerMap.fechaInicio)) || fechaFin;
     const consultants = splitConsultants(value(row, headerMap.consultor));
     if (consultants.length > 1) splitAssignments += consultants.length - 1;
+    const pais = normalizeText(value(row, headerMap.pais));
+    const cliente = normalizeText(value(row, headerMap.cliente));
+    const proyecto = normalizeText(value(row, headerMap.proyecto));
 
     return consultants.map((consultor, consultantIndex) => ({
       id: createId(`row_${index + 1}_${consultantIndex + 1}`),
       taskId: cleanText(value(row, headerMap.taskId)),
       taskName: cleanText(value(row, headerMap.taskName)),
       parentId: cleanText(value(row, headerMap.parentId)),
-      pais: normalizeText(value(row, headerMap.pais)),
-      cliente: normalizeText(value(row, headerMap.cliente)),
-      proyecto: normalizeText(value(row, headerMap.proyecto)),
+      pais,
+      cliente,
+      proyecto,
       consultor,
       perfil: normalizeProfileName(value(row, headerMap.perfil)),
       horasEstimadas: horasEstimadas.value,
       horasRegistradas: horasRegistradas.value,
+      progreso: projectProgress.get(projectKey(pais, cliente, proyecto)) ?? normalizeProgress(parseNumber(value(row, headerMap.progreso)).value),
       fechaInicio,
       fechaFin,
       raw: row
@@ -167,6 +174,27 @@ function selectAssignedLeafRows(rows: Record<string, unknown>[], headerMap: Part
   });
 
   return { rows: selectedRows, excluded };
+}
+
+function buildProjectProgress(rows: Record<string, unknown>[], headerMap: Partial<Record<HeaderField, string>>) {
+  const map = new Map<string, number>();
+  rows.forEach((row) => {
+    const pais = normalizeText(value(row, headerMap.pais));
+    const cliente = normalizeText(value(row, headerMap.cliente));
+    const proyecto = normalizeText(value(row, headerMap.proyecto));
+    const progress = normalizeProgress(parseNumber(value(row, headerMap.progreso)).value);
+    if (progress > 0) map.set(projectKey(pais, cliente, proyecto), progress);
+  });
+  return map;
+}
+
+function normalizeProgress(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  return value > 1 ? value / 100 : value;
+}
+
+function projectKey(pais: string, cliente: string, proyecto: string) {
+  return [pais, cliente, proyecto].map((part) => normalizeHeader(part)).join("__");
 }
 
 function value(row: Record<string, unknown>, key?: string) {
@@ -307,6 +335,7 @@ function label(field: HeaderField) {
     perfil: "Perfil / Rol",
     horasEstimadas: "Time Estimate",
     horasRegistradas: "Time Logged",
+    progreso: "Progreso",
     fechaInicio: "Fecha inicio",
     fechaFin: "Fecha fin / Due Date"
   };

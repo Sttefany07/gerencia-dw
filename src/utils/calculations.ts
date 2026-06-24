@@ -89,17 +89,19 @@ export function buildEstimatesFromRecords(records: NormalizedRecord[], tariffs: 
     if (record.fechaFin && record.fechaFin > estimate.fechaFin) estimate.fechaFin = record.fechaFin;
 
     const perfil = record.perfil || "No definido";
-    const existing = estimate.items.find((item) => item.perfil === perfil && item.monthIndex === 1);
+    const monthIndex = monthIndexFromDate(estimate.fechaInicio, record.fechaFin || record.fechaInicio);
+    const existing = estimate.items.find((item) => item.perfil === perfil && item.monthIndex === monthIndex);
     const tarifa = resolveTariff(perfil, rates)?.tarifa ?? 0;
     if (existing) {
       existing.horas += record.horasEstimadas;
       if (!existing.tarifa) existing.tarifa = tarifa;
     } else {
+      const groupId = estimate.items.find((item) => item.perfil === perfil)?.groupId ?? createId("profile_group");
       estimate.items.push({
         id: createId("estimate_item"),
-        groupId: createId("profile_group"),
+        groupId,
         perfil,
-        monthIndex: 1,
+        monthIndex,
         horas: record.horasEstimadas,
         tarifa
       });
@@ -149,7 +151,7 @@ export function buildComputedRows(records: NormalizedRecord[], tariffs: TariffRa
     const ingresoReal = row.horasRegistradas * tarifa;
     const costoEstimado70 = horasEstimadas * costoPorHora70;
     const costoEjecutado70 = row.horasRegistradas * costoPorHora70;
-    const progreso = safeDivide(row.horasRegistradas, horasEstimadas);
+    const progreso = row.progreso || safeDivide(row.horasRegistradas, horasEstimadas);
     const proyeccionCosto = progreso > 0 ? costoEjecutado70 / progreso : 0;
     const rentabilidadEstimada = safeDivide(ingresoEstimado - costoEstimado70, ingresoEstimado);
     const rentabilidadProyectada = safeDivide(ingresoEstimado - proyeccionCosto, ingresoEstimado);
@@ -180,7 +182,7 @@ export function buildComputedRows(records: NormalizedRecord[], tariffs: TariffRa
 }
 
 export function buildServiceProjectSummary(rows: ComputedRecord[]): ServiceProjectSummary[] {
-  const groups = new Map<string, ServiceProjectSummary>();
+  const groups = new Map<string, ServiceProjectSummary & { progressTotal: number; progressCount: number }>();
   rows.forEach((row) => {
     const key = [row.pais, row.cliente, row.proyecto].join("__");
     const current = groups.get(key) ?? {
@@ -195,18 +197,22 @@ export function buildServiceProjectSummary(rows: ComputedRecord[]): ServiceProje
       progreso: 0,
       costoEstimado70: 0,
       costoEjecutado70: 0,
-      saldoDisponible70: 0
+      saldoDisponible70: 0,
+      progressTotal: 0,
+      progressCount: 0
     };
     current.horasEstimadas += row.horasEstimadas;
     current.horasRegistradas += row.horasRegistradas;
     current.costoEstimado70 += row.costoEstimado70;
     current.costoEjecutado70 += row.costoEjecutado70;
+    current.progressTotal += row.progreso;
+    current.progressCount += 1;
     groups.set(key, current);
   });
 
   return Array.from(groups.values()).map((row) => ({
     ...roundServiceProject(row),
-    progreso: roundNumber(safeDivide(row.horasRegistradas, row.horasEstimadas), 4),
+    progreso: roundNumber(row.progressCount ? row.progressTotal / row.progressCount : safeDivide(row.horasRegistradas, row.horasEstimadas), 4),
     saldoDisponible70: roundNumber(row.costoEstimado70 - row.costoEjecutado70, 2)
   }));
 }
@@ -256,7 +262,7 @@ export function buildServiceConsultantSummary(rows: ComputedRecord[]): ServiceCo
 }
 
 export function buildGeneralProjectSummary(rows: ComputedRecord[]): GeneralProjectSummary[] {
-  const groups = new Map<string, GeneralProjectSummary>();
+  const groups = new Map<string, GeneralProjectSummary & { progressTotal: number; progressCount: number }>();
   rows.forEach((row) => {
     const key = [row.pais, row.cliente, row.proyecto].join("__");
     const current = groups.get(key) ?? {
@@ -274,17 +280,21 @@ export function buildGeneralProjectSummary(rows: ComputedRecord[]): GeneralProje
       proyeccionCosto: 0,
       rentabilidadEstimada: 0,
       rentabilidadProyectada: 0,
-      desviacionPp: 0
+      desviacionPp: 0,
+      progressTotal: 0,
+      progressCount: 0
     };
     current.ingresoEstimado += row.ingresoEstimado;
     current.ingresoReal += row.ingresoReal;
     current.costoEstimado70 += row.costoEstimado70;
     current.costoEjecutado70 += row.costoEjecutado70;
+    current.progressTotal += row.progreso;
+    current.progressCount += 1;
     groups.set(key, current);
   });
 
   return Array.from(groups.values()).map((row) => {
-    const progreso = safeDivide(row.costoEjecutado70, row.costoEstimado70);
+    const progreso = row.progressCount ? row.progressTotal / row.progressCount : safeDivide(row.costoEjecutado70, row.costoEstimado70);
     const proyeccionCosto = progreso > 0 ? row.costoEjecutado70 / progreso : 0;
     const rentabilidadEstimada = safeDivide(row.ingresoEstimado - row.costoEstimado70, row.ingresoEstimado);
     const rentabilidadProyectada = safeDivide(row.ingresoEstimado - proyeccionCosto, row.ingresoEstimado);
@@ -400,7 +410,7 @@ export function serviceTotals(rows: ComputedRecord[]) {
   return {
     horasEstimadas,
     horasRegistradas,
-    progreso: roundNumber(safeDivide(horasRegistradas, horasEstimadas), 4),
+    progreso: roundNumber(rows.length ? rows.reduce((sum, row) => sum + row.progreso, 0) / rows.length : safeDivide(horasRegistradas, horasEstimadas), 4),
     costoEstimado70,
     costoEjecutado70,
     saldoDisponible70: roundNumber(costoEstimado70 - costoEjecutado70, 2),
@@ -415,7 +425,7 @@ export function generalTotals(rows: ComputedRecord[]) {
   const costoEjecutado70 = sum(rows, "costoEjecutado70");
   const horasEstimadas = sum(rows, "horasEstimadas");
   const horasRegistradas = sum(rows, "horasRegistradas");
-  const progreso = safeDivide(horasRegistradas, horasEstimadas);
+  const progreso = rows.length ? rows.reduce((sum, row) => sum + row.progreso, 0) / rows.length : safeDivide(horasRegistradas, horasEstimadas);
   const proyeccionCosto = progreso > 0 ? costoEjecutado70 / progreso : 0;
   const rentabilidadEstimada = safeDivide(ingresoEstimado - costoEstimado70, ingresoEstimado);
   const rentabilidadProyectada = safeDivide(ingresoEstimado - proyeccionCosto, ingresoEstimado);
@@ -534,6 +544,14 @@ function projectKey(pais: string, cliente: string, proyecto: string) {
 
 function projectProfileKey(pais: string, cliente: string, proyecto: string, perfil: string, estimateId: string) {
   return [pais, cliente, proyecto, perfil, estimateId].map(normalize).join("__");
+}
+
+function monthIndexFromDate(projectStart: string, rowDate: string) {
+  if (!projectStart || !rowDate) return 1;
+  const start = new Date(`${projectStart.slice(0, 7)}-01T00:00:00Z`);
+  const current = new Date(`${rowDate.slice(0, 7)}-01T00:00:00Z`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(current.getTime())) return 1;
+  return Math.max(1, (current.getUTCFullYear() - start.getUTCFullYear()) * 12 + current.getUTCMonth() - start.getUTCMonth() + 1);
 }
 
 function eq(a: string, b: string) {
