@@ -16,7 +16,8 @@ export function EstimatesTab({
   onEstimatesChange: (estimates: ProjectEstimate[]) => void;
 }) {
   const [selectedId, setSelectedId] = useState(estimates[0]?.id ?? "");
-  const selected = estimates.find((estimate) => estimate.id === selectedId) ?? estimates[0] ?? null;
+  const normalizedEstimates = useMemo(() => normalizeEstimateGroups(estimates), [estimates]);
+  const selected = normalizedEstimates.find((estimate) => estimate.id === selectedId) ?? normalizedEstimates[0] ?? null;
   const totals = selected ? estimateTotals(selected, tariffs) : null;
   const maxMonth = Math.max(1, ...(selected?.items.map((item) => item.monthIndex) ?? [1]));
   const profileRows = selected ? buildProfileRows(selected) : [];
@@ -25,7 +26,7 @@ export function EstimatesTab({
   const [saveStatus, setSaveStatus] = useState("");
 
   const upsert = (id: string, patch: Partial<ProjectEstimate>) => {
-    onEstimatesChange(estimates.map((estimate) => (estimate.id === id ? { ...estimate, ...patch } : estimate)));
+    onEstimatesChange(normalizedEstimates.map((estimate) => (estimate.id === id ? { ...estimate, ...patch } : estimate)));
     setSaveStatus("");
   };
 
@@ -46,7 +47,7 @@ export function EstimatesTab({
         { id: createId("estimate_item"), groupId: createId("profile_group"), perfil: "Senior", monthIndex: 1, horas: 0, tarifa: getDefaultTariff("Senior") }
       ]
     };
-    onEstimatesChange([next, ...estimates]);
+    onEstimatesChange([next, ...normalizedEstimates]);
     setSelectedId(id);
   };
 
@@ -59,15 +60,15 @@ export function EstimatesTab({
       version: `${selected.version} copia`,
       estado: "Borrador",
       createdAt: new Date().toISOString(),
-      items: selected.items.map((item) => ({ ...item, id: createId("estimate_item") }))
+      items: selected.items.map((item) => ({ ...item, id: createId("estimate_item"), groupId: createId("profile_group") }))
     };
-    onEstimatesChange([copy, ...estimates]);
+    onEstimatesChange([copy, ...normalizedEstimates]);
     setSelectedId(id);
   };
 
   const remove = () => {
     if (!selected) return;
-    const next = estimates.filter((estimate) => estimate.id !== selected.id);
+    const next = normalizedEstimates.filter((estimate) => estimate.id !== selected.id);
     onEstimatesChange(next);
     setSelectedId(next[0]?.id ?? "");
   };
@@ -118,7 +119,7 @@ export function EstimatesTab({
 
   const saveEstimate = () => {
     if (!selected) return;
-    onEstimatesChange(estimates.map((estimate) => (estimate.id === selected.id ? selected : estimate)));
+    onEstimatesChange(normalizedEstimates.map((estimate) => (estimate.id === selected.id ? selected : estimate)));
     setSaveStatus("Guardado");
     window.setTimeout(() => setSaveStatus(""), 1800);
   };
@@ -129,7 +130,7 @@ export function EstimatesTab({
   };
   const getProfileTariff = (groupId: string, perfil: string) => selected?.items.find((item) => getItemGroupId(item) === groupId)?.tarifa ?? getDefaultTariff(perfil);
 
-  const projects = useMemo(() => estimates.map((estimate) => `${estimate.pais} / ${estimate.cliente} / ${estimate.proyecto}`), [estimates]);
+  const projects = useMemo(() => normalizedEstimates.map((estimate) => `${estimate.pais} / ${estimate.cliente} / ${estimate.proyecto}`), [normalizedEstimates]);
 
   return (
     <section className="grid gap-4">
@@ -165,7 +166,7 @@ export function EstimatesTab({
             <label className="grid gap-1 text-xs font-black text-slate-700">
               Estimacion activa
               <select value={selected.id} onChange={(event) => setSelectedId(event.target.value)} className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-semibold">
-                {estimates.map((estimate, index) => (
+                {normalizedEstimates.map((estimate, index) => (
                   <option key={estimate.id} value={estimate.id}>{projects[index]}</option>
                 ))}
               </select>
@@ -328,6 +329,22 @@ function buildProfileRows(estimate: ProjectEstimate) {
     ingreso: Number(row.ingreso.toFixed(2)),
     costo70: Number(row.costo70.toFixed(2))
   }));
+}
+
+function normalizeEstimateGroups(estimates: ProjectEstimate[]) {
+  return estimates.map((estimate) => {
+    const legacyGroupByProfile = new Map<string, string>();
+    return {
+      ...estimate,
+      items: estimate.items.map((item) => {
+        if (item.groupId) return item;
+        const key = normalizeProfileName(item.perfil);
+        const groupId = legacyGroupByProfile.get(key) ?? createId("profile_group");
+        legacyGroupByProfile.set(key, groupId);
+        return { ...item, groupId };
+      })
+    };
+  });
 }
 
 const DEFAULT_PROFILE_OPTIONS = ["Semi senior", "Arquitecto", "Senior", "Gerencia", "Junior", "Lead"];
