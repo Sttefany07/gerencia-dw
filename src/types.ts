@@ -18,6 +18,8 @@ export type NormalizedRecord = {
   pais: string;
   cliente: string;
   proyecto: string;
+  proyectoFechaInicio: string;
+  proyectoFechaFin: string;
   perfil: string;
   horasEstimadas: number;
   horasRegistradas: number;

@@ -60,8 +60,8 @@ export function normalizeExcelRows(rows: Record<string, unknown>[]) {
   }
 
   let invalidNumbers = 0;
-  const projectNameByTask = buildProjectNameByTask(rows, headerMap);
-  const projectProgress = buildProjectProgress(rows, headerMap, projectNameByTask);
+  const projectMetaByTask = buildProjectMetaByTask(rows, headerMap);
+  const projectProgress = buildProjectProgress(rows, headerMap, projectMetaByTask);
   let splitAssignments = 0;
   const records = selected.rows.flatMap((row, index): NormalizedRecord[] => {
     const horasEstimadas = parseNumber(value(row, headerMap.horasEstimadas));
@@ -75,7 +75,8 @@ export function normalizeExcelRows(rows: Record<string, unknown>[]) {
     if (consultants.length > 1) splitAssignments += consultants.length - 1;
     const pais = normalizeText(value(row, headerMap.pais));
     const cliente = normalizeText(value(row, headerMap.cliente));
-    const proyecto = resolveProjectName(row, headerMap, projectNameByTask);
+    const projectMeta = resolveProjectMeta(row, headerMap, projectMetaByTask);
+    const proyecto = projectMeta.name;
 
     return consultants.map((consultor, consultantIndex) => ({
       id: createId(`row_${index + 1}_${consultantIndex + 1}`),
@@ -85,6 +86,8 @@ export function normalizeExcelRows(rows: Record<string, unknown>[]) {
       pais,
       cliente,
       proyecto,
+      proyectoFechaInicio: projectMeta.fechaInicio || fechaInicio,
+      proyectoFechaFin: projectMeta.fechaFin || fechaFin,
       consultor,
       perfil: normalizeProfileName(value(row, headerMap.perfil)),
       horasEstimadas: horasEstimadas.value,
@@ -177,13 +180,19 @@ function selectAssignedLeafRows(rows: Record<string, unknown>[], headerMap: Part
   return { rows: selectedRows, excluded };
 }
 
-function buildProjectNameByTask(rows: Record<string, unknown>[], headerMap: Partial<Record<HeaderField, string>>) {
+type ProjectMeta = {
+  name: string;
+  fechaInicio: string;
+  fechaFin: string;
+};
+
+function buildProjectMetaByTask(rows: Record<string, unknown>[], headerMap: Partial<Record<HeaderField, string>>) {
   const taskIdKey = headerMap.taskId;
   const parentIdKey = headerMap.parentId;
   const taskTypeKey = headerMap.taskType;
   const taskNameKey = headerMap.taskName;
   const byId = new Map<string, Record<string, unknown>>();
-  const projectById = new Map<string, string>();
+  const projectById = new Map<string, ProjectMeta>();
   if (!taskIdKey) return projectById;
 
   rows.forEach((row) => {
@@ -195,25 +204,28 @@ function buildProjectNameByTask(rows: Record<string, unknown>[], headerMap: Part
     const taskId = cleanText(row[taskIdKey]);
     const taskType = normalizeHeader(taskTypeKey ? cleanText(row[taskTypeKey]) : "");
     if (taskId && (taskType === "proyecto" || taskType === "project")) {
-      const projectName = normalizeText(value(row, taskNameKey));
-      projectById.set(taskId, projectName);
+      projectById.set(taskId, {
+        name: normalizeText(value(row, taskNameKey)),
+        fechaInicio: parseDateToIso(value(row, headerMap.fechaInicio)),
+        fechaFin: parseDateToIso(value(row, headerMap.fechaFin))
+      });
     }
   });
 
   rows.forEach((row) => {
     const taskId = cleanText(row[taskIdKey]);
     if (!taskId || projectById.has(taskId)) return;
-    const projectName = findProjectAncestorName(row, byId, projectById, parentIdKey);
-    if (projectName) projectById.set(taskId, projectName);
+    const projectMeta = findProjectAncestorMeta(row, byId, projectById, parentIdKey);
+    if (projectMeta) projectById.set(taskId, projectMeta);
   });
 
   return projectById;
 }
 
-function findProjectAncestorName(
+function findProjectAncestorMeta(
   row: Record<string, unknown>,
   byId: Map<string, Record<string, unknown>>,
-  projectById: Map<string, string>,
+  projectById: Map<string, ProjectMeta>,
   parentIdKey?: string
 ) {
   if (!parentIdKey) return "";
@@ -221,33 +233,37 @@ function findProjectAncestorName(
   let parentId = cleanText(row[parentIdKey]);
   while (parentId && !visited.has(parentId)) {
     visited.add(parentId);
-    const projectName = projectById.get(parentId);
-    if (projectName) return projectName;
+    const projectMeta = projectById.get(parentId);
+    if (projectMeta) return projectMeta;
     const parent = byId.get(parentId);
-    if (!parent) return "";
+    if (!parent) return null;
     parentId = cleanText(parent[parentIdKey]);
   }
-  return "";
+  return null;
 }
 
-function resolveProjectName(
+function resolveProjectMeta(
   row: Record<string, unknown>,
   headerMap: Partial<Record<HeaderField, string>>,
-  projectNameByTask: Map<string, string>
+  projectMetaByTask: Map<string, ProjectMeta>
 ) {
   const taskId = cleanText(value(row, headerMap.taskId));
-  const inheritedProject = taskId ? projectNameByTask.get(taskId) : "";
+  const inheritedProject = taskId ? projectMetaByTask.get(taskId) : null;
   if (inheritedProject) return inheritedProject;
   const directProject = cleanText(value(row, headerMap.proyecto));
-  return directProject || "No definido";
+  return {
+    name: directProject || "No definido",
+    fechaInicio: "",
+    fechaFin: ""
+  };
 }
 
-function buildProjectProgress(rows: Record<string, unknown>[], headerMap: Partial<Record<HeaderField, string>>, projectNameByTask: Map<string, string>) {
+function buildProjectProgress(rows: Record<string, unknown>[], headerMap: Partial<Record<HeaderField, string>>, projectMetaByTask: Map<string, ProjectMeta>) {
   const map = new Map<string, number>();
   rows.forEach((row) => {
     const pais = normalizeText(value(row, headerMap.pais));
     const cliente = normalizeText(value(row, headerMap.cliente));
-    const proyecto = resolveProjectName(row, headerMap, projectNameByTask);
+    const proyecto = resolveProjectMeta(row, headerMap, projectMetaByTask).name;
     const progress = normalizeProgress(parseNumber(value(row, headerMap.progreso)).value);
     if (progress > 0) map.set(projectKey(pais, cliente, proyecto), progress);
   });

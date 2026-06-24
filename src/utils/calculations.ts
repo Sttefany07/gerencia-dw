@@ -79,8 +79,8 @@ export function buildEstimatesFromRecords(records: NormalizedRecord[], tariffs: 
   recordsByProject.forEach((projectRecords) => {
     const first = projectRecords[0];
     if (!first) return;
-    const projectStart = minDate(projectRecords.map((record) => record.fechaInicio || record.fechaFin)) || new Date().toISOString().slice(0, 10);
-    const projectEnd = maxDate(projectRecords.map((record) => record.fechaFin || record.fechaInicio)) || projectStart;
+    const projectStart = first.proyectoFechaInicio || minDate(projectRecords.map((record) => record.fechaInicio || record.fechaFin)) || new Date().toISOString().slice(0, 10);
+    const projectEnd = first.proyectoFechaFin || maxDate(projectRecords.map((record) => record.fechaFin || record.fechaInicio)) || projectStart;
     const estimate: ProjectEstimate = {
       id: createId("estimate_import"),
       version: "Estimacion",
@@ -555,10 +555,26 @@ function projectProfileKey(pais: string, cliente: string, proyecto: string, perf
 
 function monthIndexFromDate(projectStart: string, rowDate: string) {
   if (!projectStart || !rowDate) return 1;
-  const start = new Date(`${projectStart.slice(0, 7)}-01T00:00:00Z`);
-  const current = new Date(`${rowDate.slice(0, 7)}-01T00:00:00Z`);
+  const start = parseIsoDate(projectStart);
+  const current = parseIsoDate(rowDate);
   if (Number.isNaN(start.getTime()) || Number.isNaN(current.getTime())) return 1;
-  return Math.max(1, (current.getUTCFullYear() - start.getUTCFullYear()) * 12 + current.getUTCMonth() - start.getUTCMonth() + 1);
+  let monthIndex = 1;
+  while (current.getTime() > addMonths(start, monthIndex).getTime()) monthIndex += 1;
+  return monthIndex;
+}
+
+function parseIsoDate(value: string) {
+  return new Date(`${value.slice(0, 10)}T00:00:00Z`);
+}
+
+function addMonths(date: Date, months: number) {
+  const next = new Date(date.getTime());
+  const day = next.getUTCDate();
+  next.setUTCDate(1);
+  next.setUTCMonth(next.getUTCMonth() + months);
+  const lastDay = new Date(Date.UTC(next.getUTCFullYear(), next.getUTCMonth() + 1, 0)).getUTCDate();
+  next.setUTCDate(Math.min(day, lastDay));
+  return next;
 }
 
 function minDate(values: string[]) {
