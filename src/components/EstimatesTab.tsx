@@ -1,7 +1,7 @@
 import { Copy, Plus, Save, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
-import { ProjectEstimate, TariffRate } from "../types";
-import { estimateProfiles, estimateTotals } from "../utils/calculations";
+import { EstimateMonth, ProjectEstimate, TariffRate } from "../types";
+import { estimateTotals } from "../utils/calculations";
 import { formatHours, formatMoney, formatPercent } from "../utils/format";
 import { createId } from "../utils/ids";
 import { MetricCard } from "./MetricCard";
@@ -18,10 +18,9 @@ export function EstimatesTab({
   const [selectedId, setSelectedId] = useState(estimates[0]?.id ?? "");
   const selected = estimates.find((estimate) => estimate.id === selectedId) ?? estimates[0] ?? null;
   const totals = selected ? estimateTotals(selected, tariffs) : null;
-  const profiles = selected ? estimateProfiles(selected, tariffs) : [];
   const maxMonth = Math.max(1, ...(selected?.items.map((item) => item.monthIndex) ?? [1]));
-  const profileRows = selected ? unique(selected.items.map((item) => item.perfil)) : [];
-  const profileOptions = unique([...DEFAULT_PROFILE_OPTIONS, ...tariffs.map((rate) => normalizeProfileName(rate.perfil)), ...profileRows.map(normalizeProfileName)]);
+  const profileRows = selected ? buildProfileRows(selected) : [];
+  const profileOptions = unique([...DEFAULT_PROFILE_OPTIONS, ...tariffs.map((rate) => normalizeProfileName(rate.perfil)), ...profileRows.map((row) => normalizeProfileName(row.perfil))]);
   const [profileToAdd, setProfileToAdd] = useState(profileOptions[0] ?? "Semi senior");
   const [saveStatus, setSaveStatus] = useState("");
 
@@ -43,8 +42,8 @@ export function EstimatesTab({
       estado: "Borrador",
       createdAt: new Date().toISOString(),
       items: [
-        { id: createId("estimate_item"), perfil: "Semi senior", monthIndex: 1, horas: 0, tarifa: getDefaultTariff("Semi senior") },
-        { id: createId("estimate_item"), perfil: "Senior", monthIndex: 1, horas: 0, tarifa: getDefaultTariff("Senior") }
+        { id: createId("estimate_item"), groupId: createId("profile_group"), perfil: "Semi senior", monthIndex: 1, horas: 0, tarifa: getDefaultTariff("Semi senior") },
+        { id: createId("estimate_item"), groupId: createId("profile_group"), perfil: "Senior", monthIndex: 1, horas: 0, tarifa: getDefaultTariff("Senior") }
       ]
     };
     onEstimatesChange([next, ...estimates]);
@@ -73,39 +72,42 @@ export function EstimatesTab({
     setSelectedId(next[0]?.id ?? "");
   };
 
-  const setHours = (perfil: string, monthIndex: number, horas: number) => {
+  const setHours = (groupId: string, perfil: string, monthIndex: number, horas: number) => {
     if (!selected) return;
-    const current = selected.items.find((item) => item.perfil === perfil && item.monthIndex === monthIndex);
-    const tarifa = getProfileTariff(perfil);
+    const current = selected.items.find((item) => getItemGroupId(item) === groupId && item.monthIndex === monthIndex);
+    const tarifa = getProfileTariff(groupId, perfil);
     const items = current
       ? selected.items.map((item) => (item.id === current.id ? { ...item, horas } : item))
-      : [...selected.items, { id: createId("estimate_item"), perfil, monthIndex, horas, tarifa }];
+      : [...selected.items, { id: createId("estimate_item"), groupId, perfil, monthIndex, horas, tarifa }];
     upsert(selected.id, { items });
   };
 
-  const setTariff = (perfil: string, tarifa: number) => {
+  const setTariff = (groupId: string, tarifa: number) => {
     if (!selected) return;
-    const items = selected.items.map((item) => (item.perfil === perfil ? { ...item, tarifa } : item));
+    const items = selected.items.map((item) => (getItemGroupId(item) === groupId ? { ...item, tarifa } : item));
     upsert(selected.id, { items });
   };
 
   const addProfile = () => {
     if (!selected) return;
     const perfil = normalizeProfileName(profileToAdd);
-    if (profileRows.map(normalizeProfileName).includes(perfil)) return;
-    upsert(selected.id, { items: [...selected.items, { id: createId("estimate_item"), perfil, monthIndex: 1, horas: 0, tarifa: getDefaultTariff(perfil) }] });
+    const groupId = createId("profile_group");
+    upsert(selected.id, { items: [...selected.items, { id: createId("estimate_item"), groupId, perfil, monthIndex: 1, horas: 0, tarifa: getDefaultTariff(perfil) }] });
   };
 
-  const removeProfile = (perfil: string) => {
+  const removeProfile = (groupId: string) => {
     if (!selected) return;
-    upsert(selected.id, { items: selected.items.filter((item) => normalizeProfileName(item.perfil) !== normalizeProfileName(perfil)) });
+    upsert(selected.id, { items: selected.items.filter((item) => getItemGroupId(item) !== groupId) });
   };
 
   const addMonth = () => {
     if (!selected) return;
     const nextMonth = maxMonth + 1;
     upsert(selected.id, {
-      items: [...selected.items, ...profileRows.map((perfil) => ({ id: createId("estimate_item"), perfil, monthIndex: nextMonth, horas: 0, tarifa: getProfileTariff(perfil) }))]
+      items: [
+        ...selected.items,
+        ...profileRows.map((row) => ({ id: createId("estimate_item"), groupId: row.groupId, perfil: row.perfil, monthIndex: nextMonth, horas: 0, tarifa: getProfileTariff(row.groupId, row.perfil) }))
+      ]
     });
   };
 
@@ -125,7 +127,7 @@ export function EstimatesTab({
     const normalized = normalizeProfileName(perfil);
     return tariffs.find((rate) => normalizeProfileName(rate.perfil) === normalized)?.tarifa ?? DEFAULT_TARIFF_BY_PROFILE[normalized] ?? 0;
   };
-  const getProfileTariff = (perfil: string) => selected?.items.find((item) => normalizeProfileName(item.perfil) === normalizeProfileName(perfil))?.tarifa ?? getDefaultTariff(perfil);
+  const getProfileTariff = (groupId: string, perfil: string) => selected?.items.find((item) => getItemGroupId(item) === groupId)?.tarifa ?? getDefaultTariff(perfil);
 
   const projects = useMemo(() => estimates.map((estimate) => `${estimate.pais} / ${estimate.cliente} / ${estimate.proyecto}`), [estimates]);
 
@@ -226,35 +228,35 @@ export function EstimatesTab({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {profileRows.map((perfil) => {
-                    const profile = profiles.find((item) => item.perfil === perfil);
+                  {profileRows.map((profile) => {
+                    const perfil = profile.perfil;
                     return (
-                      <tr key={perfil}>
+                      <tr key={profile.groupId}>
                         <td className="px-3 py-2 font-black text-slate-800">{perfil}</td>
                         <td className="px-2 py-2">
                           <input
                             type="number"
                             step="0.01"
-                            value={profile?.tarifa ?? getProfileTariff(perfil)}
-                            onChange={(event) => setTariff(perfil, Number(event.target.value))}
+                            value={profile.tarifa}
+                            onChange={(event) => setTariff(profile.groupId, Number(event.target.value))}
                             className="w-28 rounded-lg border border-slate-200 px-2 py-2 font-semibold"
                           />
                         </td>
                         {Array.from({ length: maxMonth }, (_, index) => {
                           const monthIndex = index + 1;
-                          const value = selected.items.find((item) => item.perfil === perfil && item.monthIndex === monthIndex)?.horas ?? 0;
+                          const value = selected.items.find((item) => getItemGroupId(item) === profile.groupId && item.monthIndex === monthIndex)?.horas ?? 0;
                           return (
                             <td key={monthIndex} className="px-2 py-2">
-                              <input type="number" value={value} onChange={(event) => setHours(perfil, monthIndex, Number(event.target.value))} className="w-24 rounded-lg border border-slate-200 px-2 py-2 font-semibold" />
+                              <input type="number" value={value} onChange={(event) => setHours(profile.groupId, perfil, monthIndex, Number(event.target.value))} className="w-24 rounded-lg border border-slate-200 px-2 py-2 font-semibold" />
                             </td>
                           );
                         })}
-                        <td className="px-3 py-2 font-black">{formatHours(profile?.horas ?? 0)}</td>
-                        <td className="px-3 py-2 font-black">{formatMoney(profile?.ingreso ?? 0, profile?.moneda ?? "USD")}</td>
-                        <td className="px-3 py-2 font-black">{formatMoney(profile?.costo70 ?? 0, profile?.moneda ?? "USD")}</td>
+                        <td className="px-3 py-2 font-black">{formatHours(profile.horas)}</td>
+                        <td className="px-3 py-2 font-black">{formatMoney(profile.ingreso, profile.moneda)}</td>
+                        <td className="px-3 py-2 font-black">{formatMoney(profile.costo70, profile.moneda)}</td>
                         <td className="px-3 py-2">
                           <button
-                            onClick={() => removeProfile(perfil)}
+                            onClick={() => removeProfile(profile.groupId)}
                             className="inline-flex items-center gap-2 rounded-lg border border-red-200 px-3 py-2 text-xs font-black text-red-600 hover:bg-red-50"
                             title="Eliminar perfil"
                           >
@@ -294,6 +296,38 @@ function DateInput({ label, value, onChange }: { label: string; value: string; o
 
 function unique(values: string[]) {
   return Array.from(new Set(values.filter(Boolean))).sort((a, b) => a.localeCompare(b, "es"));
+}
+
+function getItemGroupId(item: EstimateMonth) {
+  return item.groupId || `legacy_${item.perfil}`;
+}
+
+function buildProfileRows(estimate: ProjectEstimate) {
+  const groups = new Map<string, { groupId: string; perfil: string; horas: number; tarifa: number; moneda: "USD"; ingreso: number; costo70: number }>();
+  estimate.items.forEach((item) => {
+    const groupId = getItemGroupId(item);
+    const current = groups.get(groupId) ?? {
+      groupId,
+      perfil: item.perfil,
+      horas: 0,
+      tarifa: item.tarifa,
+      moneda: "USD" as const,
+      ingreso: 0,
+      costo70: 0
+    };
+    current.perfil = item.perfil;
+    current.tarifa = item.tarifa;
+    current.horas += item.horas;
+    current.ingreso += item.horas * item.tarifa;
+    current.costo70 += item.horas * item.tarifa * 0.7;
+    groups.set(groupId, current);
+  });
+  return Array.from(groups.values()).map((row) => ({
+    ...row,
+    horas: Number(row.horas.toFixed(2)),
+    ingreso: Number(row.ingreso.toFixed(2)),
+    costo70: Number(row.costo70.toFixed(2))
+  }));
 }
 
 const DEFAULT_PROFILE_OPTIONS = ["Semi senior", "Arquitecto", "Senior", "Gerencia", "Junior", "Lead"];

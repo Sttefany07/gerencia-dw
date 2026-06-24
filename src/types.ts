@@ -47,6 +47,7 @@ export type TariffRate = {
 
 export type EstimateMonth = {
   id: string;
+  groupId?: string;
   perfil: string;
   monthIndex: number;
   horas: number;

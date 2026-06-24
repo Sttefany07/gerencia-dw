@@ -97,6 +97,7 @@ export function buildEstimatesFromRecords(records: NormalizedRecord[], tariffs: 
     } else {
       estimate.items.push({
         id: createId("estimate_item"),
+        groupId: createId("profile_group"),
         perfil,
         monthIndex: 1,
         horas: record.horasEstimadas,
