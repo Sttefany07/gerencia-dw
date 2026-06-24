@@ -68,50 +68,57 @@ export function ensureTariffsForRecords(records: NormalizedRecord[], tariffs: Ta
 
 export function buildEstimatesFromRecords(records: NormalizedRecord[], tariffs: TariffRate[], fileName: string): ProjectEstimate[] {
   const rates = sanitizeTariffs(tariffs);
-  const projects = new Map<string, ProjectEstimate>();
+  const recordsByProject = new Map<string, NormalizedRecord[]>();
 
   records.forEach((record) => {
     const key = projectKey(record.pais, record.cliente, record.proyecto);
-    const estimate = projects.get(key) ?? {
+    recordsByProject.set(key, [...(recordsByProject.get(key) ?? []), record]);
+  });
+
+  const estimates: ProjectEstimate[] = [];
+  recordsByProject.forEach((projectRecords) => {
+    const first = projectRecords[0];
+    if (!first) return;
+    const projectStart = minDate(projectRecords.map((record) => record.fechaInicio || record.fechaFin)) || new Date().toISOString().slice(0, 10);
+    const projectEnd = maxDate(projectRecords.map((record) => record.fechaFin || record.fechaInicio)) || projectStart;
+    const estimate: ProjectEstimate = {
       id: createId("estimate_import"),
       version: "Estimacion",
-      pais: record.pais,
-      cliente: record.cliente,
-      proyecto: record.proyecto,
-      fechaInicio: record.fechaInicio || record.fechaFin || new Date().toISOString().slice(0, 10),
-      fechaFin: record.fechaFin || record.fechaInicio || new Date().toISOString().slice(0, 10),
+      pais: first.pais,
+      cliente: first.cliente,
+      proyecto: first.proyecto,
+      fechaInicio: projectStart,
+      fechaFin: projectEnd,
       estado: "Aprobada" as const,
       createdAt: new Date().toISOString(),
       items: []
     };
 
-    if (record.fechaInicio && record.fechaInicio < estimate.fechaInicio) estimate.fechaInicio = record.fechaInicio;
-    if (record.fechaFin && record.fechaFin > estimate.fechaFin) estimate.fechaFin = record.fechaFin;
+    projectRecords.forEach((record) => {
+      const perfil = record.perfil || "No definido";
+      const monthIndex = monthIndexFromDate(estimate.fechaInicio, record.fechaFin || record.fechaInicio);
+      const existing = estimate.items.find((item) => item.perfil === perfil && item.monthIndex === monthIndex);
+      const tarifa = resolveTariff(perfil, rates)?.tarifa ?? 0;
+      if (existing) {
+        existing.horas += record.horasEstimadas;
+        if (!existing.tarifa) existing.tarifa = tarifa;
+      } else {
+        const groupId = estimate.items.find((item) => item.perfil === perfil)?.groupId ?? createId("profile_group");
+        estimate.items.push({
+          id: createId("estimate_item"),
+          groupId,
+          perfil,
+          monthIndex,
+          horas: record.horasEstimadas,
+          tarifa
+        });
+      }
+    });
 
-    const perfil = record.perfil || "No definido";
-    const monthIndex = monthIndexFromDate(estimate.fechaInicio, record.fechaFin || record.fechaInicio);
-    const existing = estimate.items.find((item) => item.perfil === perfil && item.monthIndex === monthIndex);
-    const tarifa = resolveTariff(perfil, rates)?.tarifa ?? 0;
-    if (existing) {
-      existing.horas += record.horasEstimadas;
-      if (!existing.tarifa) existing.tarifa = tarifa;
-    } else {
-      const groupId = estimate.items.find((item) => item.perfil === perfil)?.groupId ?? createId("profile_group");
-      estimate.items.push({
-        id: createId("estimate_item"),
-        groupId,
-        perfil,
-        monthIndex,
-        horas: record.horasEstimadas,
-        tarifa
-      });
-    }
-
-    estimate.version = "Estimacion";
-    projects.set(key, estimate);
+    estimates.push(estimate);
   });
 
-  return Array.from(projects.values()).filter((estimate) => estimate.items.some((item) => item.horas > 0));
+  return estimates.filter((estimate) => estimate.items.some((item) => item.horas > 0));
 }
 
 export function filterRecords(records: NormalizedRecord[], filters: FilterState) {
@@ -552,6 +559,16 @@ function monthIndexFromDate(projectStart: string, rowDate: string) {
   const current = new Date(`${rowDate.slice(0, 7)}-01T00:00:00Z`);
   if (Number.isNaN(start.getTime()) || Number.isNaN(current.getTime())) return 1;
   return Math.max(1, (current.getUTCFullYear() - start.getUTCFullYear()) * 12 + current.getUTCMonth() - start.getUTCMonth() + 1);
+}
+
+function minDate(values: string[]) {
+  const dates = values.filter(Boolean).sort();
+  return dates[0] ?? "";
+}
+
+function maxDate(values: string[]) {
+  const dates = values.filter(Boolean).sort();
+  return dates[dates.length - 1] ?? "";
 }
 
 function eq(a: string, b: string) {
