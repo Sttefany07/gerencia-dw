@@ -96,23 +96,24 @@ export function buildEstimatesFromRecords(records: NormalizedRecord[], tariffs: 
 
     projectRecords.forEach((record) => {
       const perfil = record.perfil || "No definido";
-      const monthIndex = monthIndexFromDate(estimate.fechaInicio, record.fechaFin || record.fechaInicio);
-      const existing = estimate.items.find((item) => item.perfil === perfil && item.monthIndex === monthIndex);
       const tarifa = resolveTariff(perfil, rates)?.tarifa ?? 0;
-      if (existing) {
-        existing.horas += record.horasEstimadas;
-        if (!existing.tarifa) existing.tarifa = tarifa;
-      } else {
-        const groupId = estimate.items.find((item) => item.perfil === perfil)?.groupId ?? createId("profile_group");
-        estimate.items.push({
-          id: createId("estimate_item"),
-          groupId,
-          perfil,
-          monthIndex,
-          horas: record.horasEstimadas,
-          tarifa
-        });
-      }
+      splitHoursByProjectMonth(estimate.fechaInicio, record.fechaInicio, record.fechaFin, record.horasEstimadas).forEach(({ monthIndex, horas }) => {
+        const existing = estimate.items.find((item) => item.perfil === perfil && item.monthIndex === monthIndex);
+        if (existing) {
+          existing.horas += horas;
+          if (!existing.tarifa) existing.tarifa = tarifa;
+        } else {
+          const groupId = estimate.items.find((item) => item.perfil === perfil)?.groupId ?? createId("profile_group");
+          estimate.items.push({
+            id: createId("estimate_item"),
+            groupId,
+            perfil,
+            monthIndex,
+            horas,
+            tarifa
+          });
+        }
+      });
     });
 
     estimates.push(estimate);
@@ -561,6 +562,23 @@ function monthIndexFromDate(projectStart: string, rowDate: string) {
   let monthIndex = 1;
   while (current.getTime() > addMonths(start, monthIndex).getTime()) monthIndex += 1;
   return monthIndex;
+}
+
+function splitHoursByProjectMonth(projectStart: string, rowStart: string, rowEnd: string, hours: number) {
+  const totalHours = Number.isFinite(hours) ? hours : 0;
+  const startIndex = monthIndexFromDate(projectStart, rowStart || rowEnd);
+  const endIndex = monthIndexFromDate(projectStart, rowEnd || rowStart);
+  const from = Math.min(startIndex, endIndex);
+  const to = Math.max(startIndex, endIndex);
+  const monthCount = Math.max(1, to - from + 1);
+  const baseHours = roundNumber(totalHours / monthCount, 2);
+  let allocated = 0;
+  return Array.from({ length: monthCount }, (_, index) => {
+    const isLast = index === monthCount - 1;
+    const horas = isLast ? roundNumber(totalHours - allocated, 2) : baseHours;
+    allocated += horas;
+    return { monthIndex: from + index, horas };
+  });
 }
 
 function parseIsoDate(value: string) {

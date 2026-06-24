@@ -233,11 +233,12 @@ function buildExecutedRows(rows: ComputedRecord[], estimates: ProjectEstimate[])
       costo: 0,
       months: {}
     };
-    const monthKey = rowMonthKey(row, estimates);
-    current.months[monthKey] = (current.months[monthKey] ?? 0) + row.horasRegistradas;
-    current.horas += row.horasRegistradas;
-    current.ingreso += row.ingresoReal;
-    current.costo += row.costoEjecutado70;
+    splitRowHoursByProjectMonth(row, estimates, row.horasRegistradas).forEach(({ monthKey, horas }) => {
+      current.months[monthKey] = (current.months[monthKey] ?? 0) + horas;
+      current.horas += horas;
+      current.ingreso += horas * row.tarifa;
+      current.costo += horas * row.costoPorHora70;
+    });
     groups.set(key, current);
   });
   return Array.from(groups.values()).map((row) => roundFinancialRow(row) as FinancialExecutedRow);
@@ -271,15 +272,16 @@ function buildProfitabilityByMonth(estimates: ProjectEstimate[], rows: ComputedR
   });
 
   rows.forEach((row) => {
-      const monthKey = rowMonthKey(row, estimates);
-    const key = [row.pais, row.cliente, row.proyecto, monthKey].join("__");
-    const current = groups.get(key) ?? createProfitabilityRow(key, row.pais, row.cliente, row.proyecto, monthKey, row.moneda);
-    current.horasRegistradas += row.horasRegistradas;
-    current.ingresoReal += row.ingresoReal;
-    current.costoEjecutado70 += row.costoEjecutado70;
-    current.progressTotal += row.progreso;
-    current.progressCount += 1;
-    groups.set(key, current);
+    splitRowHoursByProjectMonth(row, estimates, row.horasRegistradas).forEach(({ monthKey, horas }) => {
+      const key = [row.pais, row.cliente, row.proyecto, monthKey].join("__");
+      const current = groups.get(key) ?? createProfitabilityRow(key, row.pais, row.cliente, row.proyecto, monthKey, row.moneda);
+      current.horasRegistradas += horas;
+      current.ingresoReal += horas * row.tarifa;
+      current.costoEjecutado70 += horas * row.costoPorHora70;
+      current.progressTotal += row.progreso;
+      current.progressCount += 1;
+      groups.set(key, current);
+    });
   });
 
   return Array.from(groups.values())
@@ -391,7 +393,7 @@ function estimateMonthKey(estimate: ProjectEstimate, monthIndex: number) {
 }
 
 function getMonthKeys(rows: ComputedRecord[], estimates: ProjectEstimate[]) {
-  return Array.from(new Set(rows.map((row) => rowMonthKey(row, estimates)))).sort(compareMonthKeys);
+  return Array.from(new Set(rows.flatMap((row) => splitRowHoursByProjectMonth(row, estimates, row.horasRegistradas).map((item) => item.monthKey)))).sort(compareMonthKeys);
 }
 
 function uniqueSorted(values: string[]) {
@@ -403,6 +405,25 @@ function rowMonthKey(row: ComputedRecord, estimates: ProjectEstimate[] = []) {
   const projectStart = findProjectStart(row, estimates);
   if (!date || !projectStart) return "Sin fecha";
   return `M${monthIndexFromDate(projectStart, date)}`;
+}
+
+function splitRowHoursByProjectMonth(row: ComputedRecord, estimates: ProjectEstimate[], hours: number) {
+  const projectStart = findProjectStart(row, estimates);
+  const totalHours = Number.isFinite(hours) ? hours : 0;
+  if (!projectStart) return [{ monthKey: "Sin fecha", horas: totalHours }];
+  const startIndex = monthIndexFromDate(projectStart, row.fechaInicio || row.fechaFin);
+  const endIndex = monthIndexFromDate(projectStart, row.fechaFin || row.fechaInicio);
+  const from = Math.min(startIndex, endIndex);
+  const to = Math.max(startIndex, endIndex);
+  const monthCount = Math.max(1, to - from + 1);
+  const baseHours = round(totalHours / monthCount);
+  let allocated = 0;
+  return Array.from({ length: monthCount }, (_, index) => {
+    const isLast = index === monthCount - 1;
+    const horas = isLast ? round(totalHours - allocated) : baseHours;
+    allocated += horas;
+    return { monthKey: `M${from + index}`, horas };
+  });
 }
 
 function monthLabel(monthKey: string) {
